@@ -157,6 +157,11 @@ body.dark .ocr-result-note.warning { background: #493a17; }
 .drive-details div { min-height: 50px; display: grid; align-content: center; gap: 3px; border-bottom: 1px solid var(--line); }
 .drive-details span, .version-grid span { color: var(--muted); font-size: 11px; }
 .drive-details strong { overflow-wrap: anywhere; font-size: 12px; }
+.drive-folder-field { margin-top: 13px; }
+.permission-note { margin-top: 10px; padding: 10px 11px; border: 1px solid color-mix(in srgb,var(--warning) 28%,var(--line)); border-radius: 12px; display: grid; gap: 3px; color: var(--warning); background: color-mix(in srgb,var(--warning) 8%,var(--surface)); }
+.permission-note strong { font-size: 12px; }
+.permission-note span { font-size: 11px; line-height: 1.5; }
+.inline-link { width: max-content; min-height: 32px; margin-top: 3px; display: inline-flex; align-items: center; color: var(--primary); font-size: 11px; font-weight: 700; text-decoration: none; }
 .version-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 .version-grid div { padding: 12px; border-radius: 13px; background: var(--surface-2); }
 .version-grid strong { display: block; margin-top: 4px; color: var(--primary); font-size: 16px; }

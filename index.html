@@ -26,7 +26,7 @@
     <main class="content" id="content">
       <section id="infoPage" class="page active" data-page="info">
         <div id="connectionBanner" class="banner banner-info">
-          <div class="banner-icon">G</div><div><strong>連接 Google Drive 開始使用</strong><p>資料只會儲存在你的 Drive，並依廠商建立資料夾。</p></div>
+          <div class="banner-icon">G</div><div><strong>連接 Google Drive 開始使用</strong><p>資料會儲存在設定的 Drive 位置，並依廠商建立資料夾。</p></div>
           <button id="bannerConnectBtn" class="btn btn-primary btn-small" type="button">前往設定</button>
         </div>
         <div class="summary-grid">
@@ -73,22 +73,24 @@
           <div class="field"><label for="notes">備註</label><textarea id="notes" rows="3" maxlength="500" placeholder="產品、合作內容或其他提醒"></textarea><small class="counter"><span id="notesCount">0</span>/500</small></div>
           <label class="toggle-row"><span><strong>加入收藏</strong><small>在名片資訊中快速篩選</small></span><input id="favorite" type="checkbox"><i></i></label>
           <button id="saveCardBtn" class="btn btn-primary btn-block" type="submit"><span>✓</span><span id="saveBtnText">儲存至 Google Drive</span></button>
-          <p class="privacy-note">名片照片與資料會存入「廠商名片管家／廠商名稱」資料夾。</p>
+          <p class="privacy-note">名片照片與資料會存入「設定的雲端位置／廠商名稱」資料夾。</p>
         </form>
       </section>
 
       <section id="settingsPage" class="page" data-page="settings">
-        <div class="section-heading"><div><span class="eyebrow">偏好與連線</span><h1>設定</h1></div><span class="version-pill">V1.0.0</span></div>
+        <div class="section-heading"><div><span class="eyebrow">偏好與連線</span><h1>設定</h1></div><span class="version-pill">V1.1.0</span></div>
         <section class="settings-card">
           <div class="settings-title"><span class="google-mark">G</span><div><h2>Google Drive</h2><p id="driveStatusText">尚未連線</p></div></div>
           <div class="field"><label for="clientIdInput">Google OAuth Client ID</label><input id="clientIdInput" type="text" autocomplete="off" spellcheck="false" placeholder="1234567890-xxxx.apps.googleusercontent.com"><small>Client ID 可公開；請勿填入 Client Secret。</small></div>
-          <div class="button-row"><button id="saveClientIdBtn" class="btn btn-secondary" type="button">儲存設定</button><button id="connectDriveBtn" class="btn btn-primary" type="button">連接 Google Drive</button></div>
-          <div class="drive-details"><div><span>儲存位置</span><strong>我的雲端硬碟／廠商名片管家</strong></div><div><span>上次同步</span><strong id="lastSyncText">尚未同步</strong></div></div>
+          <div class="field required drive-folder-field"><label for="driveFolderInput">Google Drive 雲端空間位置</label><input id="driveFolderInput" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="https://drive.google.com/drive/folders/1PqDRkf6ip0kp60i1BRgsMTMt2aCmvLum" placeholder="貼上 Google Drive 資料夾網址"><small id="folderHelpText">可貼入資料夾網址或 Folder ID；所有廠商資料夾都會建立在此位置內。</small></div>
+          <div class="permission-note"><strong>權限說明</strong><span>寫入既有資料夾需要完整 Drive 授權；程式只會操作上方指定的位置。</span></div>
+          <div class="button-row"><button id="saveClientIdBtn" class="btn btn-secondary" type="button">儲存連線設定</button><button id="connectDriveBtn" class="btn btn-primary" type="button">連接 Google Drive</button></div>
+          <div class="drive-details"><div><span>目前儲存位置</span><strong id="driveLocationText">預設資料夾（尚未驗證）</strong><a id="openFolderLink" class="inline-link" href="https://drive.google.com/drive/folders/1PqDRkf6ip0kp60i1BRgsMTMt2aCmvLum" target="_blank" rel="noopener">開啟資料夾 ↗</a></div><div><span>上次同步</span><strong id="lastSyncText">尚未同步</strong></div></div>
           <div class="button-row compact"><button id="syncNowBtn" class="text-btn" type="button">立即同步</button><button id="disconnectBtn" class="text-btn danger" type="button" hidden>中斷連線</button></div>
         </section>
         <section class="settings-card"><h2>辨識與顯示</h2><label class="toggle-row"><span><strong>拍照後自動辨識</strong><small>自動擷取公司、姓名、電話與信箱</small></span><input id="autoOcrToggle" type="checkbox" checked><i></i></label><label class="toggle-row"><span><strong>深色模式</strong><small>適合低光環境使用</small></span><input id="themeToggle" type="checkbox"><i></i></label></section>
-        <section class="settings-card"><div class="settings-title"><span class="update-icon">↻</span><div><h2>版本更新</h2><p id="updateStatusText">開啟程式時自動檢查</p></div></div><div class="version-grid"><div><span>目前版本</span><strong id="currentVersion">V1.0.0</strong></div><div><span>最新版本</span><strong id="latestVersion">檢查中</strong></div></div><button id="checkUpdateBtn" class="btn btn-secondary btn-block" type="button">檢查更新</button></section>
-        <section class="settings-card guide-card"><h2>首次設定說明</h2><ol><li>在 Google Cloud 啟用 Google Drive API。</li><li>建立「網頁應用程式」OAuth 用戶端。</li><li>加入 GitHub Pages 網址為已授權 JavaScript 來源。</li><li>將 Client ID 貼至上方並連接 Drive。</li></ol><details><summary>為什麼可以辨識名片？</summary><p>OCR 會直接在本機瀏覽器處理照片，支援繁體中文與英文；影像不會因辨識而上傳到第三方 OCR 服務。完成校正並儲存後，才會寫入你的 Google Drive。</p></details></section>
+        <section class="settings-card"><div class="settings-title"><span class="update-icon">↻</span><div><h2>版本更新</h2><p id="updateStatusText">開啟程式時自動檢查</p></div></div><div class="version-grid"><div><span>目前版本</span><strong id="currentVersion">V1.1.0</strong></div><div><span>最新版本</span><strong id="latestVersion">檢查中</strong></div></div><button id="checkUpdateBtn" class="btn btn-secondary btn-block" type="button">檢查更新</button></section>
+        <section class="settings-card guide-card"><h2>首次設定說明</h2><ol><li>在 Google Cloud 啟用 Google Drive API。</li><li>建立「網頁應用程式」OAuth 用戶端。</li><li>加入 GitHub Pages 網址為已授權 JavaScript 來源。</li><li>填入 Client ID 與雲端資料夾位置後連接 Drive。</li></ol><details><summary>為什麼可以辨識名片？</summary><p>OCR 會直接在本機瀏覽器處理照片，支援繁體中文與英文；影像不會因辨識而上傳到第三方 OCR 服務。完成校正並儲存後，才會寫入你的 Google Drive。</p></details></section>
       </section>
     </main>
 

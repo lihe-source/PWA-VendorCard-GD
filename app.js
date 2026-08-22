@@ -1,14 +1,14 @@
 'use strict';
 
-const APP_VERSION = '1.0.0';
-const ROOT_FOLDER_NAME = '廠商名片管家';
+const APP_VERSION = '1.1.0';
+const DEFAULT_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1PqDRkf6ip0kp60i1BRgsMTMt2aCmvLum';
 const INDEX_FILE_NAME = 'vendors-index.json';
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
 const DEFAULT_CATEGORIES = ['設備商', '材料商', '外包商', '顧問／服務', '客戶', '物流', '其他'];
 
 const $ = (id) => document.getElementById(id);
 const state = {
-  token: '', tokenExpiresAt: 0, rootFolderId: '', indexFileId: '',
+  token: '', tokenExpiresAt: 0, rootFolderId: '', rootFolderName: '', indexFileId: '',
   index: { schemaVersion: 1, updatedAt: '', vendors: [] }, photoBlob: null,
   previewUrl: '', activeRecord: null, activeVendor: null, detailPhotoUrl: '',
   favoriteOnly: false, connected: false, syncing: false, confirmAction: null,
@@ -17,14 +17,14 @@ const state = {
 const prefs = {
   get clientId() { return localStorage.getItem('vcm.clientId') || ''; },
   set clientId(v) { localStorage.setItem('vcm.clientId', v); },
+  get driveFolderUrl() { return localStorage.getItem('vcm.driveFolderUrl') || DEFAULT_DRIVE_FOLDER_URL; },
+  set driveFolderUrl(v) { localStorage.setItem('vcm.driveFolderUrl', v); },
   get autoOcr() { return localStorage.getItem('vcm.autoOcr') !== 'false'; },
   set autoOcr(v) { localStorage.setItem('vcm.autoOcr', String(v)); },
   get dark() { return localStorage.getItem('vcm.dark') === 'true'; },
   set dark(v) { localStorage.setItem('vcm.dark', String(v)); },
   get lastConnected() { return localStorage.getItem('vcm.lastConnected') === 'true'; },
   set lastConnected(v) { localStorage.setItem('vcm.lastConnected', String(v)); },
-  get rootFolderId() { return localStorage.getItem('vcm.rootFolderId') || ''; },
-  set rootFolderId(v) { localStorage.setItem('vcm.rootFolderId', v); },
   get lastSync() { return localStorage.getItem('vcm.lastSync') || ''; },
   set lastSync(v) { localStorage.setItem('vcm.lastSync', v); },
 };
@@ -98,10 +98,12 @@ function showPage(name) {
 
 function applyPreferences() {
   $('clientIdInput').value = prefs.clientId;
+  $('driveFolderInput').value = prefs.driveFolderUrl;
   $('autoOcrToggle').checked = prefs.autoOcr;
   $('themeToggle').checked = prefs.dark;
   document.body.classList.toggle('dark', prefs.dark);
   $('lastSyncText').textContent = formatTime(prefs.lastSync);
+  updateDriveLocationUi();
   DEFAULT_CATEGORIES.forEach((name) => $('categoryList').insertAdjacentHTML('beforeend', `<option value="${escapeHtml(name)}"></option>`));
 }
 
@@ -120,7 +122,7 @@ function bindEvents() {
   $('categoryFilter').addEventListener('change', renderRecords);
   $('sortSelect').addEventListener('change', renderRecords);
   $('favoriteFilter').addEventListener('click', () => { state.favoriteOnly = !state.favoriteOnly; $('favoriteFilter').setAttribute('aria-pressed', String(state.favoriteOnly)); $('favoriteFilter').textContent = state.favoriteOnly ? '★ 只看收藏' : '☆ 只看收藏'; renderRecords(); });
-  $('saveClientIdBtn').addEventListener('click', saveClientId);
+  $('saveClientIdBtn').addEventListener('click', saveDriveSettings);
   $('connectDriveBtn').addEventListener('click', () => connectDrive(true));
   $('syncNowBtn').addEventListener('click', syncNow);
   $('disconnectBtn').addEventListener('click', disconnectDrive);
@@ -137,11 +139,36 @@ function bindEvents() {
   window.addEventListener('offline', () => toast('目前離線，新名片會先暫存在本機', 'error'));
 }
 
-function saveClientId() {
-  const value = $('clientIdInput').value.trim();
-  if (value && !/^[\w-]+\.apps\.googleusercontent\.com$/.test(value)) return toast('Client ID 格式不正確', 'error');
-  prefs.clientId = value;
-  toast(value ? 'Google OAuth 設定已儲存' : 'Client ID 已清除');
+function parseDriveFolderId(value) {
+  const raw = String(value || '').trim();
+  if (/^[A-Za-z0-9_-]{10,}$/.test(raw)) return raw;
+  try {
+    const url = new URL(raw);
+    if (!/(^|\.)drive\.google\.com$/i.test(url.hostname)) return '';
+    return (url.pathname.match(/\/folders\/([A-Za-z0-9_-]{10,})/) || [])[1] || url.searchParams.get('id') || '';
+  } catch (_) { return ''; }
+}
+function canonicalDriveFolderUrl(value) {
+  const id = parseDriveFolderId(value); return id ? `https://drive.google.com/drive/folders/${id}` : '';
+}
+function updateDriveLocationUi() {
+  const url = canonicalDriveFolderUrl($('driveFolderInput')?.value || prefs.driveFolderUrl) || DEFAULT_DRIVE_FOLDER_URL;
+  $('openFolderLink').href = url;
+  $('driveLocationText').textContent = state.rootFolderName ? `${state.rootFolderName}（已驗證）` : `Folder ID：${parseDriveFolderId(url) || '格式錯誤'}`;
+}
+async function saveDriveSettings() {
+  const clientId = $('clientIdInput').value.trim();
+  const folderUrl = canonicalDriveFolderUrl($('driveFolderInput').value);
+  if (clientId && !/^[\w-]+\.apps\.googleusercontent\.com$/.test(clientId)) return toast('Client ID 格式不正確', 'error');
+  if (!folderUrl) { $('driveFolderInput').classList.add('invalid'); return toast('Google Drive 資料夾網址格式不正確', 'error'); }
+  $('driveFolderInput').classList.remove('invalid');
+  const oldFolderId = parseDriveFolderId(prefs.driveFolderUrl);
+  prefs.clientId = clientId; prefs.driveFolderUrl = folderUrl;
+  state.rootFolderId = ''; state.rootFolderName = '';
+  if (oldFolderId !== parseDriveFolderId(folderUrl)) state.indexFileId = '';
+  updateDriveLocationUi();
+  toast('Google Drive 連線設定已儲存');
+  if (state.connected) await syncNow(false);
 }
 
 async function waitForGoogle(timeout = 7000) {
@@ -154,7 +181,9 @@ async function connectDrive(interactive = true) {
   if (state.syncing) return;
   const clientId = $('clientIdInput').value.trim() || prefs.clientId;
   if (!clientId) { showPage('settings'); $('clientIdInput').focus(); return toast('請先填入 Google OAuth Client ID', 'error'); }
-  prefs.clientId = clientId;
+  const folderUrl = canonicalDriveFolderUrl($('driveFolderInput').value || prefs.driveFolderUrl);
+  if (!folderUrl) { showPage('settings'); $('driveFolderInput').focus(); return toast('請填入有效的 Google Drive 資料夾網址', 'error'); }
+  prefs.clientId = clientId; prefs.driveFolderUrl = folderUrl; $('driveFolderInput').value = folderUrl; updateDriveLocationUi();
   if (!navigator.onLine) return toast('目前沒有網路，無法連接 Google Drive', 'error');
   if (!await waitForGoogle()) return toast('Google 登入元件載入失敗，請重新整理', 'error');
   setSyncState('syncing', '連線中');
@@ -181,7 +210,7 @@ async function connectDrive(interactive = true) {
 
 function disconnectDrive() {
   if (state.token && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(state.token, () => {});
-  state.token = ''; state.connected = false; state.rootFolderId = ''; state.indexFileId = ''; prefs.lastConnected = false;
+  state.token = ''; state.connected = false; state.rootFolderId = ''; state.rootFolderName = ''; state.indexFileId = ''; prefs.lastConnected = false;
   updateConnectionUi(); toast('已中斷 Google Drive 連線');
 }
 
@@ -249,14 +278,22 @@ async function moveDriveFile(fileId, fromParent, toParent) {
 async function jsonBlob(value) { return new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }); }
 
 async function ensureRootFolder() {
-  if (state.rootFolderId) return state.rootFolderId;
-  const cached = prefs.rootFolderId;
-  if (cached) {
-    try { await driveFetch(`/drive/v3/files/${encodeURIComponent(cached)}?fields=id,trashed`); state.rootFolderId = cached; return cached; } catch (_) { prefs.rootFolderId = ''; }
+  const folderId = parseDriveFolderId(prefs.driveFolderUrl);
+  if (!folderId) throw new Error('Google Drive 資料夾網址格式不正確');
+  if (state.rootFolderId === folderId) return folderId;
+  let folder;
+  try {
+    const response = await driveFetch(`/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed,capabilities(canAddChildren)`);
+    folder = await response.json();
+  } catch (error) {
+    if (/404|403/.test(String(error.message))) throw new Error('無法存取指定資料夾，請確認網址、登入帳號與 Drive 授權');
+    throw error;
   }
-  const files = await listDriveFiles(`name = '${qEscape(ROOT_FOLDER_NAME)}' and mimeType = 'application/vnd.google-apps.folder' and 'root' in parents and trashed = false`);
-  const folder = files[0] || await createFolder(ROOT_FOLDER_NAME);
-  state.rootFolderId = folder.id; prefs.rootFolderId = folder.id; return folder.id;
+  if (folder.trashed) throw new Error('指定的 Google Drive 資料夾已在垃圾桶中');
+  if (folder.mimeType !== 'application/vnd.google-apps.folder') throw new Error('指定位置不是 Google Drive 資料夾');
+  if (folder.capabilities?.canAddChildren === false) throw new Error('目前帳號沒有在指定資料夾新增內容的權限');
+  state.rootFolderId = folder.id; state.rootFolderName = folder.name || 'Google Drive 資料夾'; updateDriveLocationUi();
+  return folder.id;
 }
 async function findOrCreateVendorFolder(name, oldVendor) {
   const known = state.index.vendors.find((v) => v.name.toLocaleLowerCase() === name.toLocaleLowerCase() && v.folderId !== oldVendor?.folderId);
