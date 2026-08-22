@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const DEFAULT_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1PqDRkf6ip0kp60i1BRgsMTMt2aCmvLum';
 const INDEX_FILE_NAME = 'vendors-index.json';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -9,9 +9,9 @@ const DEFAULT_CATEGORIES = ['設備商', '材料商', '外包商', '顧問／服
 const $ = (id) => document.getElementById(id);
 const state = {
   token: '', tokenExpiresAt: 0, rootFolderId: '', rootFolderName: '', indexFileId: '',
-  index: { schemaVersion: 1, updatedAt: '', vendors: [] }, photoBlob: null,
+  index: { schemaVersion: 1, updatedAt: '', vendors: [], categories: [...DEFAULT_CATEGORIES] }, photoBlob: null,
   previewUrl: '', activeRecord: null, activeVendor: null, detailPhotoUrl: '',
-  favoriteOnly: false, connected: false, syncing: false, confirmAction: null,
+  favoriteOnly: false, connected: false, syncing: false, authInFlight: false, autoReconnectArmed: false, confirmAction: null,
 };
 
 const prefs = {
@@ -21,6 +21,12 @@ const prefs = {
   set driveFolderUrl(v) { localStorage.setItem('vcm.driveFolderUrl', v); },
   get autoOcr() { return localStorage.getItem('vcm.autoOcr') !== 'false'; },
   set autoOcr(v) { localStorage.setItem('vcm.autoOcr', String(v)); },
+  get autoConnect() { return localStorage.getItem('vcm.autoConnect') !== 'false'; },
+  set autoConnect(v) { localStorage.setItem('vcm.autoConnect', String(v)); },
+  get categories() { try { const value = JSON.parse(localStorage.getItem('vcm.categories') || 'null'); return Array.isArray(value) && value.length ? value : [...DEFAULT_CATEGORIES]; } catch (_) { return [...DEFAULT_CATEGORIES]; } },
+  set categories(v) { localStorage.setItem('vcm.categories', JSON.stringify(v)); },
+  get categoriesDirty() { return localStorage.getItem('vcm.categoriesDirty') === 'true'; },
+  set categoriesDirty(v) { localStorage.setItem('vcm.categoriesDirty', String(v)); },
   get dark() { return localStorage.getItem('vcm.dark') === 'true'; },
   set dark(v) { localStorage.setItem('vcm.dark', String(v)); },
   get lastConnected() { return localStorage.getItem('vcm.lastConnected') === 'true'; },
@@ -93,18 +99,19 @@ function showPage(name) {
   document.querySelectorAll('.nav-btn').forEach((el) => el.classList.toggle('active', el.dataset.target === name));
   const subtitles = { info: '名片資訊快速整理', capture: '拍照辨識與建檔', settings: '雲端、辨識與版本' };
   $('headerSubtitle').textContent = subtitles[name];
-  $('content').scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  updateBackToTop();
 }
 
 function applyPreferences() {
   $('clientIdInput').value = prefs.clientId;
   $('driveFolderInput').value = prefs.driveFolderUrl;
   $('autoOcrToggle').checked = prefs.autoOcr;
+  $('autoConnectToggle').checked = prefs.autoConnect;
   $('themeToggle').checked = prefs.dark;
   document.body.classList.toggle('dark', prefs.dark);
   $('lastSyncText').textContent = formatTime(prefs.lastSync);
   updateDriveLocationUi();
-  DEFAULT_CATEGORIES.forEach((name) => $('categoryList').insertAdjacentHTML('beforeend', `<option value="${escapeHtml(name)}"></option>`));
 }
 
 function bindEvents() {
@@ -114,6 +121,10 @@ function bindEvents() {
   $('emptyCaptureBtn').addEventListener('click', () => showPage('capture'));
   $('photoDropzone').addEventListener('click', () => $('photoInput').click());
   $('photoInput').addEventListener('change', handlePhoto);
+  $('uploadInput').addEventListener('change', handlePhoto);
+  $('takePhotoBtn').addEventListener('click', () => $('photoInput').click());
+  $('uploadPhotoBtn').addEventListener('click', () => $('uploadInput').click());
+  $('analyzePhotoBtn').addEventListener('click', () => state.photoBlob && runOcr(state.photoBlob));
   $('resetFormBtn').addEventListener('click', () => resetForm(true));
   $('cardForm').addEventListener('submit', saveForm);
   $('notes').addEventListener('input', () => { $('notesCount').textContent = $('notes').value.length; });
@@ -127,16 +138,101 @@ function bindEvents() {
   $('syncNowBtn').addEventListener('click', syncNow);
   $('disconnectBtn').addEventListener('click', disconnectDrive);
   $('autoOcrToggle').addEventListener('change', (e) => { prefs.autoOcr = e.target.checked; toast('辨識設定已儲存'); });
+  $('autoConnectToggle').addEventListener('change', (e) => { prefs.autoConnect = e.target.checked; if (e.target.checked) scheduleAutomaticConnect(); toast(e.target.checked ? '已啟用自動連線' : '已停用自動連線'); });
   $('themeToggle').addEventListener('change', (e) => { prefs.dark = e.target.checked; document.body.classList.toggle('dark', e.target.checked); });
   $('checkUpdateBtn').addEventListener('click', () => checkForUpdate(true));
   document.querySelectorAll('[data-close-dialog]').forEach((b) => b.addEventListener('click', () => $('detailDialog').close()));
   $('editRecordBtn').addEventListener('click', editActiveRecord);
   $('deleteRecordBtn').addEventListener('click', requestDeleteActive);
   $('detailFavoriteBtn').addEventListener('click', toggleActiveFavorite);
-  $('confirmCancel').addEventListener('click', () => $('confirmDialog').close());
+  $('confirmCancel').addEventListener('click', () => { state.confirmAction = null; $('confirmDialog').close(); });
   $('confirmOk').addEventListener('click', async () => { const fn = state.confirmAction; $('confirmDialog').close(); state.confirmAction = null; if (fn) await fn(); });
-  window.addEventListener('online', () => { toast('網路已恢復，準備同步'); if (state.connected) syncNow(); });
+  $('category').addEventListener('focus', openCategoryMenu);
+  $('category').addEventListener('input', openCategoryMenu);
+  $('category').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCategoryMenu(); if (e.key === 'Enter' && !$('categoryMenu').hidden) { e.preventDefault(); const first = $('categoryOptions').querySelector('.category-option'); first ? selectCategory(first.dataset.category) : quickAddCategory(); } });
+  $('categoryToggleBtn').addEventListener('click', toggleCategoryMenu);
+  $('quickAddCategoryBtn').addEventListener('click', quickAddCategory);
+  $('addManagedCategoryBtn').addEventListener('click', () => addManagedCategory($('manageCategoryInput').value));
+  $('manageCategoryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addManagedCategory(e.target.value); } });
+  document.addEventListener('pointerdown', (e) => { if (!$('categoryCombobox').contains(e.target)) closeCategoryMenu(); });
+  $('backToTopBtn').addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  window.addEventListener('scroll', updateBackToTop, { passive: true });
+  window.addEventListener('online', () => { toast('網路已恢復，準備同步'); state.connected ? syncNow() : scheduleAutomaticConnect(); });
   window.addEventListener('offline', () => toast('目前離線，新名片會先暫存在本機', 'error'));
+}
+
+function updateBackToTop() {
+  const infoActive = $('infoPage').classList.contains('active');
+  $('backToTopBtn').classList.toggle('show', infoActive && window.scrollY > 260);
+}
+
+function managedCategories() {
+  const source = Array.isArray(state.index.categories) && state.index.categories.length ? state.index.categories : prefs.categories;
+  return [...new Set(source.map((name) => String(name).trim()).filter(Boolean))];
+}
+function openCategoryMenu() {
+  $('categoryMenu').hidden = false; $('categoryCombobox').classList.add('open'); $('category').setAttribute('aria-expanded', 'true'); renderCategoryPicker();
+}
+function closeCategoryMenu() {
+  $('categoryMenu').hidden = true; $('categoryCombobox').classList.remove('open'); $('category').setAttribute('aria-expanded', 'false');
+}
+function toggleCategoryMenu() { $('categoryMenu').hidden ? openCategoryMenu() : closeCategoryMenu(); }
+function renderCategoryPicker() {
+  const query = $('category').value.trim().toLocaleLowerCase();
+  const categories = managedCategories().filter((name) => !query || name.toLocaleLowerCase().includes(query));
+  $('categoryOptions').innerHTML = categories.length ? categories.map((name) => `<button class="category-option ${name === $('category').value ? 'selected' : ''}" type="button" role="option" data-category="${escapeHtml(name)}" aria-selected="${name === $('category').value}">${escapeHtml(name)}</button>`).join('') : '<div class="category-empty">找不到符合的分類</div>';
+  $('categoryOptions').querySelectorAll('.category-option').forEach((button) => button.addEventListener('click', () => selectCategory(button.dataset.category)));
+  const exact = managedCategories().some((name) => name.toLocaleLowerCase() === query);
+  $('quickAddCategoryBtn').textContent = query && !exact ? `＋ 新增「${$('category').value.trim()}」` : '＋ 新增分類';
+}
+function selectCategory(name) { $('category').value = name; closeCategoryMenu(); }
+async function quickAddCategory() {
+  const value = $('category').value.trim();
+  if (!value) { toast('請先在分類欄位輸入名稱', 'error'); $('category').focus(); return; }
+  if (await addManagedCategory(value, true)) selectCategory(value);
+}
+async function addManagedCategory(rawValue, selectAfter = false) {
+  const value = String(rawValue || '').replace(/\s+/g, ' ').trim();
+  if (!value) { toast('請輸入分類名稱', 'error'); return false; }
+  if (value.length > 30) { toast('分類名稱最多 30 個字', 'error'); return false; }
+  const categories = managedCategories();
+  const existing = categories.find((name) => name.toLocaleLowerCase() === value.toLocaleLowerCase());
+  if (existing) { if (selectAfter) selectCategory(existing); else toast('這個分類已存在'); return true; }
+  categories.push(value);
+  await persistCategories(categories);
+  $('manageCategoryInput').value = '';
+  toast(`已新增分類：${value}`);
+  return true;
+}
+function requestRemoveCategory(name) {
+  if (managedCategories().length <= 1) return toast('至少需要保留一個分類', 'error');
+  $('confirmTitle').textContent = '刪除分類？';
+  $('confirmMessage').textContent = `將「${name}」從分類選單移除；既有名片仍會保留原分類文字。`;
+  $('confirmOk').textContent = '確認刪除';
+  state.confirmAction = async () => {
+    await persistCategories(managedCategories().filter((item) => item !== name));
+    if ($('category').value === name) $('category').value = '';
+    toast(`已刪除分類：${name}`);
+  };
+  $('confirmDialog').showModal();
+}
+async function persistCategories(categories) {
+  state.index.categories = [...categories]; prefs.categories = [...categories]; prefs.categoriesDirty = true;
+  await cachePut('index', state.index).catch(() => {});
+  renderCategoryManager(); renderCategoryPicker(); updateCategoryOptions(flattenRecords().map(({ record }) => record.category));
+  $('categorySyncNote').textContent = state.token ? '正在同步分類…' : '已儲存在本機，連接 Drive 後會自動同步。';
+  if (state.token) {
+    try {
+      await ensureRootFolder(); state.index.updatedAt = nowIso();
+      state.indexFileId = await upsertJsonFile(INDEX_FILE_NAME, state.rootFolderId, state.index, state.indexFileId);
+      prefs.categoriesDirty = false; prefs.lastSync = nowIso(); $('lastSyncText').textContent = formatTime(prefs.lastSync);
+      $('categorySyncNote').textContent = '分類已同步至 Google Drive。';
+    } catch (error) { $('categorySyncNote').textContent = '分類同步失敗，重新連線後會再嘗試。'; }
+  }
+}
+function renderCategoryManager() {
+  $('managedCategoryList').innerHTML = managedCategories().map((name) => `<span class="managed-category-item">${escapeHtml(name)}<button type="button" data-remove-category="${escapeHtml(name)}" aria-label="刪除 ${escapeHtml(name)}">×</button></span>`).join('');
+  $('managedCategoryList').querySelectorAll('[data-remove-category]').forEach((button) => button.addEventListener('click', () => requestRemoveCategory(button.dataset.removeCategory)));
 }
 
 function parseDriveFolderId(value) {
@@ -177,15 +273,31 @@ async function waitForGoogle(timeout = 7000) {
   return Boolean(window.google?.accounts?.oauth2);
 }
 
+function saveSessionToken() {
+  try { sessionStorage.setItem('vcm.accessToken', state.token); sessionStorage.setItem('vcm.tokenExpiresAt', String(state.tokenExpiresAt)); } catch (_) {}
+}
+function restoreSessionToken() {
+  try {
+    const token = sessionStorage.getItem('vcm.accessToken') || '';
+    const expiresAt = Number(sessionStorage.getItem('vcm.tokenExpiresAt') || 0);
+    if (token && expiresAt > Date.now() + 60000) { state.token = token; state.tokenExpiresAt = expiresAt; state.connected = true; return true; }
+  } catch (_) {}
+  return false;
+}
+function clearSessionToken() {
+  try { sessionStorage.removeItem('vcm.accessToken'); sessionStorage.removeItem('vcm.tokenExpiresAt'); } catch (_) {}
+}
+
 async function connectDrive(interactive = true) {
-  if (state.syncing) return;
+  if (state.syncing || state.authInFlight) return false;
   const clientId = $('clientIdInput').value.trim() || prefs.clientId;
-  if (!clientId) { showPage('settings'); $('clientIdInput').focus(); return toast('請先填入 Google OAuth Client ID', 'error'); }
+  if (!clientId) { if (interactive) { showPage('settings'); $('clientIdInput').focus(); toast('請先填入 Google OAuth Client ID', 'error'); } return false; }
   const folderUrl = canonicalDriveFolderUrl($('driveFolderInput').value || prefs.driveFolderUrl);
-  if (!folderUrl) { showPage('settings'); $('driveFolderInput').focus(); return toast('請填入有效的 Google Drive 資料夾網址', 'error'); }
+  if (!folderUrl) { if (interactive) { showPage('settings'); $('driveFolderInput').focus(); toast('請填入有效的 Google Drive 資料夾網址', 'error'); } return false; }
   prefs.clientId = clientId; prefs.driveFolderUrl = folderUrl; $('driveFolderInput').value = folderUrl; updateDriveLocationUi();
-  if (!navigator.onLine) return toast('目前沒有網路，無法連接 Google Drive', 'error');
-  if (!await waitForGoogle()) return toast('Google 登入元件載入失敗，請重新整理', 'error');
+  if (!navigator.onLine) { if (interactive) toast('目前沒有網路，無法連接 Google Drive', 'error'); return false; }
+  if (!await waitForGoogle()) { if (interactive) toast('Google 登入元件載入失敗，請重新整理', 'error'); return false; }
+  state.authInFlight = true;
   setSyncState('syncing', '連線中');
   try {
     const response = await new Promise((resolve, reject) => {
@@ -198,29 +310,51 @@ async function connectDrive(interactive = true) {
     });
     state.token = response.access_token;
     state.tokenExpiresAt = Date.now() + Math.max(60, Number(response.expires_in || 3600) - 60) * 1000;
+    saveSessionToken();
     state.connected = true; prefs.lastConnected = true;
     updateConnectionUi();
     const synced = await syncNow(false);
-    if (synced) toast('Google Drive 已連線');
+    if (synced && interactive) toast('Google Drive 已連線');
+    return Boolean(synced);
   } catch (error) {
     state.connected = false; updateConnectionUi();
     if (interactive) toast(humanizeError(error, 'Google Drive 連線失敗'), 'error');
+    return false;
+  } finally {
+    state.authInFlight = false;
   }
+}
+
+async function scheduleAutomaticConnect() {
+  if (!prefs.autoConnect || !prefs.lastConnected || !prefs.clientId || !navigator.onLine || state.connected || state.authInFlight) return;
+  const connected = await connectDrive(false);
+  if (!connected) armFirstGestureReconnect();
+}
+
+function armFirstGestureReconnect() {
+  if (state.autoReconnectArmed || !prefs.autoConnect || state.connected) return;
+  state.autoReconnectArmed = true;
+  const resume = async () => {
+    state.autoReconnectArmed = false;
+    if (!state.connected && prefs.autoConnect) await connectDrive(false);
+  };
+  window.addEventListener('pointerdown', resume, { once: true, capture: true });
 }
 
 function disconnectDrive() {
   if (state.token && window.google?.accounts?.oauth2) google.accounts.oauth2.revoke(state.token, () => {});
-  state.token = ''; state.connected = false; state.rootFolderId = ''; state.rootFolderName = ''; state.indexFileId = ''; prefs.lastConnected = false;
+  clearSessionToken(); state.token = ''; state.connected = false; state.rootFolderId = ''; state.rootFolderName = ''; state.indexFileId = ''; prefs.lastConnected = false;
   updateConnectionUi(); toast('已中斷 Google Drive 連線');
 }
 
 function updateConnectionUi() {
   const on = state.connected && state.token;
+  const autoWaiting = !on && prefs.autoConnect && prefs.lastConnected && prefs.clientId;
   $('connectionBanner').hidden = Boolean(on);
-  $('driveStatusText').textContent = on ? '已連線，可同步名片資料' : '尚未連線';
+  $('driveStatusText').textContent = on ? '已連線，可同步名片資料' : autoWaiting ? '自動連線已啟用，將嘗試恢復' : '尚未連線';
   $('connectDriveBtn').textContent = on ? '重新授權' : '連接 Google Drive';
   $('disconnectBtn').hidden = !on;
-  setSyncState(on ? 'connected' : 'offline', on ? 'Drive 已連線' : '尚未連線');
+  setSyncState(on ? 'connected' : 'offline', on ? 'Drive 已連線' : autoWaiting ? '等待自動連線' : '尚未連線');
   $('saveBtnText').textContent = on ? '儲存至 Google Drive' : '離線暫存（連線後上傳）';
 }
 
@@ -234,12 +368,12 @@ function humanizeError(error, fallback = '操作失敗') {
 
 async function driveFetch(url, options = {}) {
   if (!state.token || Date.now() > state.tokenExpiresAt) {
-    state.connected = false; updateConnectionUi(); throw new Error('Google 登入已失效');
+    clearSessionToken(); state.token = ''; state.connected = false; updateConnectionUi(); armFirstGestureReconnect(); throw new Error('Google 登入已失效');
   }
   const fullUrl = url.startsWith('http') ? url : `https://www.googleapis.com${url}`;
   const headers = new Headers(options.headers || {}); headers.set('Authorization', `Bearer ${state.token}`);
   const response = await fetch(fullUrl, { ...options, headers });
-  if (response.status === 401) { state.token = ''; state.connected = false; updateConnectionUi(); throw new Error('Google 登入已失效'); }
+  if (response.status === 401) { clearSessionToken(); state.token = ''; state.connected = false; updateConnectionUi(); armFirstGestureReconnect(); throw new Error('Google 登入已失效'); }
   if (!response.ok) { const text = await response.text(); throw new Error(`${response.status}: ${text.slice(0, 180)}`); }
   return response;
 }
@@ -318,8 +452,9 @@ async function upsertJsonFile(name, parentId, data, knownId = '') {
 }
 
 function normalizeIndex(data) {
-  if (!data || !Array.isArray(data.vendors)) return { schemaVersion: 1, updatedAt: '', vendors: [] };
-  return { schemaVersion: 1, updatedAt: data.updatedAt || '', vendors: data.vendors.filter((v) => v && v.name && v.folderId).map((v) => ({ ...v, contacts: Array.isArray(v.contacts) ? v.contacts : [] })) };
+  if (!data || !Array.isArray(data.vendors)) return { schemaVersion: 1, updatedAt: '', vendors: [], categories: prefs.categories };
+  const categories = Array.isArray(data.categories) && data.categories.length ? [...new Set(data.categories.map((name) => String(name).trim()).filter(Boolean))] : prefs.categories;
+  return { schemaVersion: 1, updatedAt: data.updatedAt || '', vendors: data.vendors.filter((v) => v && v.name && v.folderId).map((v) => ({ ...v, contacts: Array.isArray(v.contacts) ? v.contacts : [] })), categories };
 }
 
 async function syncNow(showMessage = true) {
@@ -327,6 +462,7 @@ async function syncNow(showMessage = true) {
   if (state.syncing) return;
   state.syncing = true; setSyncState('syncing', '同步中');
   try {
+    const localDirtyCategories = prefs.categoriesDirty ? prefs.categories : null;
     const rootId = await ensureRootFolder();
     let files = await listDriveFiles(`name = '${qEscape(INDEX_FILE_NAME)}' and '${qEscape(rootId)}' in parents and trashed = false`);
     if (files[0]) {
@@ -334,10 +470,15 @@ async function syncNow(showMessage = true) {
       const response = await driveFetch(`/drive/v3/files/${encodeURIComponent(state.indexFileId)}?alt=media`);
       state.index = normalizeIndex(await response.json());
     } else {
-      state.index = { schemaVersion: 1, updatedAt: '', vendors: [] };
+      state.index = { schemaVersion: 1, updatedAt: '', vendors: [], categories: prefs.categories };
       state.index.updatedAt = nowIso();
       state.indexFileId = await upsertJsonFile(INDEX_FILE_NAME, rootId, state.index);
     }
+    if (localDirtyCategories) {
+      state.index.categories = localDirtyCategories; state.index.updatedAt = nowIso();
+      state.indexFileId = await upsertJsonFile(INDEX_FILE_NAME, rootId, state.index, state.indexFileId);
+      prefs.categoriesDirty = false;
+    } else prefs.categories = state.index.categories;
     await cachePut('index', state.index);
     await flushPending();
     prefs.lastSync = nowIso(); $('lastSyncText').textContent = formatTime(prefs.lastSync);
@@ -362,6 +503,7 @@ async function flushPending() {
 
 async function handlePhoto(event) {
   const file = event.target.files?.[0]; if (!file) return;
+  const forceAnalyze = event.target.id === 'uploadInput';
   if (!file.type.startsWith('image/')) return toast('請選擇圖片檔案', 'error');
   if (file.size > 25 * 1024 * 1024) return toast('照片超過 25 MB，請改用較小圖片', 'error');
   try {
@@ -370,8 +512,9 @@ async function handlePhoto(event) {
     if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
     state.previewUrl = URL.createObjectURL(state.photoBlob);
     $('photoPreview').src = state.previewUrl; $('photoPreview').hidden = false; $('cameraPrompt').hidden = true; $('replacePhotoHint').hidden = false;
+    $('analyzePhotoBtn').hidden = false;
     setBusy(false);
-    if (prefs.autoOcr) await runOcr(state.photoBlob);
+    if (prefs.autoOcr || forceAnalyze) await runOcr(state.photoBlob);
   } catch (error) { setBusy(false); toast('照片讀取失敗，請重新拍攝', 'error'); }
   finally { event.target.value = ''; }
 }
@@ -454,7 +597,7 @@ function getFormRecord() {
   const timestamp = nowIso();
   return {
     id: existing?.id || uid(), vendorName: $('vendorName').value.trim(), contactName: $('contactName').value.trim(),
-    phone: $('phone').value.trim(), email: $('email').value.trim().toLowerCase(), category: $('category').value.trim() || '其他',
+    phone: $('phone').value.trim(), email: $('email').value.trim().toLowerCase(), category: $('category').value.trim() || managedCategories()[0] || '其他',
     jobTitle: $('jobTitle').value.trim(), notes: $('notes').value.trim(), favorite: $('favorite').checked,
     photoFileId: existing?.photoFileId || '', recordFileId: existing?.recordFileId || '',
     createdAt: existing?.createdAt || timestamp, updatedAt: timestamp,
@@ -504,7 +647,7 @@ async function persistRecord(record, photoBlob, existingInfo = findRecord(record
     const oldCurrent = vendors.find((v) => v.folderId === oldSnapshot.folderId);
     await upsertJsonFile('vendor.json', oldSnapshot.folderId, { schemaVersion: 1, vendor: { name: oldSnapshot.name }, contacts: oldCurrent?.contacts || [], updatedAt: nowIso() }, oldSnapshot.summaryFileId);
   }
-  state.index = { schemaVersion: 1, updatedAt: nowIso(), vendors: vendors.filter((v) => v.contacts.length) };
+  state.index = { schemaVersion: 1, updatedAt: nowIso(), vendors: vendors.filter((v) => v.contacts.length), categories: managedCategories() };
   state.indexFileId = await upsertJsonFile(INDEX_FILE_NAME, state.rootFolderId, state.index, state.indexFileId);
   await cachePut('index', state.index); prefs.lastSync = nowIso(); $('lastSyncText').textContent = formatTime(prefs.lastSync);
   return record;
@@ -514,7 +657,8 @@ function resetForm(showMessage = false) {
   $('cardForm').reset(); $('recordId').value = ''; $('notesCount').textContent = '0'; $('captureTitle').textContent = '拍攝名片'; $('saveBtnText').textContent = state.connected ? '儲存至 Google Drive' : '離線暫存（連線後上傳）';
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); state.previewUrl = ''; state.photoBlob = null;
   $('photoPreview').src = ''; $('photoPreview').hidden = true; $('cameraPrompt').hidden = false; $('replacePhotoHint').hidden = true; $('ocrPanel').hidden = true; $('ocrResultNote').hidden = true;
-  $('cameraPrompt').querySelector('strong').textContent = '拍照或選擇名片照片'; $('cameraPrompt').querySelector('small').textContent = '請保持光線均勻、畫面端正且文字清楚';
+  $('analyzePhotoBtn').hidden = true; closeCategoryMenu();
+  $('cameraPrompt').querySelector('strong').textContent = '拍攝名片並自動分析'; $('cameraPrompt').querySelector('small').textContent = '請保持光線均勻、畫面端正且文字清楚';
   $('autoOcrToggle').checked = prefs.autoOcr; document.querySelectorAll('.invalid').forEach((el) => el.classList.remove('invalid')); document.querySelectorAll('.field-error').forEach((el) => { el.textContent = ''; });
   if (showMessage) toast('表單已清除');
 }
@@ -525,7 +669,7 @@ function findRecord(id) {
   return null;
 }
 function flattenRecords() { return state.index.vendors.flatMap((vendor) => vendor.contacts.map((record) => ({ vendor, record }))); }
-function renderAll() { renderRecords(); updatePendingCount(); updateConnectionUi(); }
+function renderAll() { renderRecords(); renderCategoryManager(); renderCategoryPicker(); updatePendingCount(); updateConnectionUi(); }
 
 function renderRecords() {
   const query = $('searchInput')?.value.trim().toLocaleLowerCase() || '';
@@ -551,7 +695,7 @@ function renderRecords() {
 }
 function updateCategoryOptions(values) {
   const select = $('categoryFilter'); const current = select.value;
-  const cats = [...new Set([...DEFAULT_CATEGORIES, ...values.filter(Boolean)])];
+  const cats = [...new Set([...managedCategories(), ...values.filter(Boolean)])];
   select.innerHTML = '<option value="all">所有分類</option>' + cats.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
   select.value = cats.includes(current) || current === 'all' ? current : 'all';
 }
@@ -641,10 +785,13 @@ async function registerServiceWorker() {
 }
 
 async function init() {
-  applyPreferences(); bindEvents(); updateConnectionUi(); $('currentVersion').textContent = `V${APP_VERSION}`;
+  state.index.categories = prefs.categories;
+  applyPreferences(); bindEvents(); restoreSessionToken(); updateConnectionUi(); $('currentVersion').textContent = `V${APP_VERSION}`;
   try { const cached = await cacheGet('index'); if (cached) state.index = normalizeIndex(cached); } catch (_) {}
   renderAll();
   const initialPage = location.hash.replace('#', ''); if (['info', 'capture', 'settings'].includes(initialPage)) showPage(initialPage);
   await registerServiceWorker(); checkForUpdate(false);
+  if (state.token) setTimeout(() => syncNow(false), 150);
+  else if (prefs.autoConnect && prefs.lastConnected) setTimeout(scheduleAutomaticConnect, 300);
 }
 document.addEventListener('DOMContentLoaded', init);

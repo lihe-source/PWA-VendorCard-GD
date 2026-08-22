@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#0f5c5e">
   <meta name="description" content="拍照辨識名片，依廠商分類並安全整理至 Google Drive。">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -54,10 +54,16 @@
         <div class="section-heading"><div><span class="eyebrow">新增記錄</span><h1 id="captureTitle">拍攝名片</h1></div><button id="resetFormBtn" class="text-btn" type="button">清除</button></div>
         <div class="capture-card">
           <input id="photoInput" class="sr-only" type="file" accept="image/*" capture="environment">
+          <input id="uploadInput" class="sr-only" type="file" accept="image/*">
           <button id="photoDropzone" class="photo-dropzone" type="button">
-            <div id="cameraPrompt"><span class="camera-ring"><svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3v12H4V7Z"/><circle cx="12" cy="13" r="4"/></svg></span><strong>拍照或選擇名片照片</strong><small>請保持光線均勻、畫面端正且文字清楚</small></div>
-            <img id="photoPreview" alt="名片預覽" hidden><span id="replacePhotoHint" hidden>點一下更換照片</span>
+            <div id="cameraPrompt"><span class="camera-ring"><svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3v12H4V7Z"/><circle cx="12" cy="13" r="4"/></svg></span><strong>拍攝名片並自動分析</strong><small>請保持光線均勻、畫面端正且文字清楚</small></div>
+            <img id="photoPreview" alt="名片預覽" hidden><span id="replacePhotoHint" hidden>點一下重新拍攝</span>
           </button>
+          <div class="photo-action-row">
+            <button id="takePhotoBtn" class="btn btn-secondary" type="button"><span aria-hidden="true">⌾</span>拍攝名片</button>
+            <button id="uploadPhotoBtn" class="btn btn-secondary" type="button"><span aria-hidden="true">↑</span>上傳照片分析</button>
+          </div>
+          <button id="analyzePhotoBtn" class="text-btn analyze-again" type="button" hidden>重新分析目前照片</button>
           <div id="ocrPanel" class="ocr-panel" hidden><div class="progress-head"><span id="ocrStatus">正在辨識文字…</span><strong id="ocrPercent">0%</strong></div><div class="progress-track"><span id="ocrProgress"></span></div></div>
           <div id="ocrResultNote" class="ocr-result-note" hidden></div>
         </div>
@@ -69,7 +75,7 @@
             <div class="field"><label for="phone">電話</label><input id="phone" type="tel" maxlength="40" autocomplete="tel" inputmode="tel" placeholder="04-1234-5678"><small class="field-error"></small></div>
             <div class="field"><label for="email">電子信箱</label><input id="email" type="email" maxlength="120" autocomplete="email" inputmode="email" placeholder="name@company.com"><small class="field-error"></small></div>
           </div>
-          <div class="field-grid"><div class="field"><label for="category">分類</label><input id="category" list="categoryList" maxlength="30" placeholder="選擇或輸入分類"><datalist id="categoryList"></datalist></div><div class="field"><label for="jobTitle">職稱</label><input id="jobTitle" maxlength="60" autocomplete="organization-title" placeholder="例如：業務經理"></div></div>
+          <div class="field-grid"><div class="field"><label for="category">分類</label><div id="categoryCombobox" class="category-combobox"><div class="combobox-input-row"><input id="category" maxlength="30" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="categoryMenu" placeholder="搜尋或選擇分類"><button id="categoryToggleBtn" type="button" aria-label="展開分類選單">⌄</button></div><div id="categoryMenu" class="category-menu" role="listbox" hidden><div id="categoryOptions" class="category-options"></div><button id="quickAddCategoryBtn" class="quick-add-category" type="button">＋ 新增分類</button></div></div></div><div class="field"><label for="jobTitle">職稱</label><input id="jobTitle" maxlength="60" autocomplete="organization-title" placeholder="例如：業務經理"></div></div>
           <div class="field"><label for="notes">備註</label><textarea id="notes" rows="3" maxlength="500" placeholder="產品、合作內容或其他提醒"></textarea><small class="counter"><span id="notesCount">0</span>/500</small></div>
           <label class="toggle-row"><span><strong>加入收藏</strong><small>在名片資訊中快速篩選</small></span><input id="favorite" type="checkbox"><i></i></label>
           <button id="saveCardBtn" class="btn btn-primary btn-block" type="submit"><span>✓</span><span id="saveBtnText">儲存至 Google Drive</span></button>
@@ -78,7 +84,7 @@
       </section>
 
       <section id="settingsPage" class="page" data-page="settings">
-        <div class="section-heading"><div><span class="eyebrow">偏好與連線</span><h1>設定</h1></div><span class="version-pill">V1.1.0</span></div>
+        <div class="section-heading"><div><span class="eyebrow">偏好與連線</span><h1>設定</h1></div><span class="version-pill">V1.2.0</span></div>
         <section class="settings-card">
           <div class="settings-title"><span class="google-mark">G</span><div><h2>Google Drive</h2><p id="driveStatusText">尚未連線</p></div></div>
           <div class="field"><label for="clientIdInput">Google OAuth Client ID</label><input id="clientIdInput" type="text" autocomplete="off" spellcheck="false" placeholder="1234567890-xxxx.apps.googleusercontent.com"><small>Client ID 可公開；請勿填入 Client Secret。</small></div>
@@ -86,10 +92,12 @@
           <div class="permission-note"><strong>權限說明</strong><span>寫入既有資料夾需要完整 Drive 授權；程式只會操作上方指定的位置。</span></div>
           <div class="button-row"><button id="saveClientIdBtn" class="btn btn-secondary" type="button">儲存連線設定</button><button id="connectDriveBtn" class="btn btn-primary" type="button">連接 Google Drive</button></div>
           <div class="drive-details"><div><span>目前儲存位置</span><strong id="driveLocationText">預設資料夾（尚未驗證）</strong><a id="openFolderLink" class="inline-link" href="https://drive.google.com/drive/folders/1PqDRkf6ip0kp60i1BRgsMTMt2aCmvLum" target="_blank" rel="noopener">開啟資料夾 ↗</a></div><div><span>上次同步</span><strong id="lastSyncText">尚未同步</strong></div></div>
+          <label class="toggle-row auto-connect-row"><span><strong>開啟後自動連線與同步</strong><small>優先靜默恢復；Google 要求時於第一次操作完成帳號確認</small></span><input id="autoConnectToggle" type="checkbox" checked><i></i></label>
           <div class="button-row compact"><button id="syncNowBtn" class="text-btn" type="button">立即同步</button><button id="disconnectBtn" class="text-btn danger" type="button" hidden>中斷連線</button></div>
         </section>
         <section class="settings-card"><h2>辨識與顯示</h2><label class="toggle-row"><span><strong>拍照後自動辨識</strong><small>自動擷取公司、姓名、電話與信箱</small></span><input id="autoOcrToggle" type="checkbox" checked><i></i></label><label class="toggle-row"><span><strong>深色模式</strong><small>適合低光環境使用</small></span><input id="themeToggle" type="checkbox"><i></i></label></section>
-        <section class="settings-card"><div class="settings-title"><span class="update-icon">↻</span><div><h2>版本更新</h2><p id="updateStatusText">開啟程式時自動檢查</p></div></div><div class="version-grid"><div><span>目前版本</span><strong id="currentVersion">V1.1.0</strong></div><div><span>最新版本</span><strong id="latestVersion">檢查中</strong></div></div><button id="checkUpdateBtn" class="btn btn-secondary btn-block" type="button">檢查更新</button></section>
+        <section class="settings-card category-manager-card"><div class="settings-title"><span class="category-manager-icon">≡</span><div><h2>分類管理</h2><p>此清單會同步到新增名片的分類選單</p></div></div><div class="manage-category-row"><input id="manageCategoryInput" maxlength="30" autocomplete="off" placeholder="輸入新分類名稱"><button id="addManagedCategoryBtn" class="btn btn-primary" type="button">新增</button></div><div id="managedCategoryList" class="managed-category-list"></div><p id="categorySyncNote" class="settings-footnote">連接 Drive 後會跨裝置同步。</p></section>
+        <section class="settings-card"><div class="settings-title"><span class="update-icon">↻</span><div><h2>版本更新</h2><p id="updateStatusText">開啟程式時自動檢查</p></div></div><div class="version-grid"><div><span>目前版本</span><strong id="currentVersion">V1.2.0</strong></div><div><span>最新版本</span><strong id="latestVersion">檢查中</strong></div></div><button id="checkUpdateBtn" class="btn btn-secondary btn-block" type="button">檢查更新</button></section>
         <section class="settings-card guide-card"><h2>首次設定說明</h2><ol><li>在 Google Cloud 啟用 Google Drive API。</li><li>建立「網頁應用程式」OAuth 用戶端。</li><li>加入 GitHub Pages 網址為已授權 JavaScript 來源。</li><li>填入 Client ID 與雲端資料夾位置後連接 Drive。</li></ol><details><summary>為什麼可以辨識名片？</summary><p>OCR 會直接在本機瀏覽器處理照片，支援繁體中文與英文；影像不會因辨識而上傳到第三方 OCR 服務。完成校正並儲存後，才會寫入你的 Google Drive。</p></details></section>
       </section>
     </main>
@@ -99,6 +107,7 @@
       <button class="nav-btn capture-nav" data-target="capture" type="button"><span class="capture-fab"><svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3v12H4V7Z"/><circle cx="12" cy="13" r="4"/></svg></span><span>名片記錄</span></button>
       <button class="nav-btn" data-target="settings" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3.1 14H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3.1V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span>設定</span></button>
     </nav>
+    <button id="backToTopBtn" class="back-to-top" type="button" aria-label="回到最頂端" title="回到最頂端">↑</button>
   </div>
 
   <dialog id="detailDialog" class="detail-dialog">

@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "releasedAt": "2026-08-22T00:00:00Z",
   "minimumDataSchema": 1,
-  "notes": "新增可編輯的 Google Drive 雲端空間位置，預設使用指定資料夾網址，並驗證資料夾及寫入權限。"
+  "notes": "新增自動恢復 Google Drive 連線、照片上傳分析、分類管理與搜尋選單、回頂端按鈕，並優化手機版底部空間與固定縮放。"
 }
