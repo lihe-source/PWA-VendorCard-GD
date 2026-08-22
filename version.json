@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "releasedAt": "2026-08-22T00:00:00Z",
+  "minimumDataSchema": 1,
+  "notes": "首個正式版本：名片拍照、OCR、Google Drive 分廠商資料夾、搜尋分類與自動更新。"
+}

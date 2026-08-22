@@ -1,0 +1,22 @@
+{
+  "id": "./",
+  "name": "廠商名片管家",
+  "short_name": "名片管家",
+  "description": "拍照辨識名片，依廠商分類並安全整理至 Google Drive。",
+  "lang": "zh-Hant",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#f4f7f6",
+  "theme_color": "#0f5c5e",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "拍攝名片", "short_name": "新增名片", "url": "./index.html#capture", "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }] }
+  ]
+}

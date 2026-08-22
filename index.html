@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0f5c5e">
+  <meta name="description" content="拍照辨識名片，依廠商分類並安全整理至 Google Drive。">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="名片管家">
+  <title>廠商名片管家</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand"><img src="./icon.svg" alt="" width="40" height="40"><div><strong>廠商名片管家</strong><span id="headerSubtitle">名片資訊快速整理</span></div></div>
+      <button id="syncBadge" class="sync-badge" type="button"><span class="status-dot"></span><span id="syncBadgeText">尚未連線</span></button>
+    </header>
+
+    <main class="content" id="content">
+      <section id="infoPage" class="page active" data-page="info">
+        <div id="connectionBanner" class="banner banner-info">
+          <div class="banner-icon">G</div><div><strong>連接 Google Drive 開始使用</strong><p>資料只會儲存在你的 Drive，並依廠商建立資料夾。</p></div>
+          <button id="bannerConnectBtn" class="btn btn-primary btn-small" type="button">前往設定</button>
+        </div>
+        <div class="summary-grid">
+          <article class="summary-card"><span>廠商</span><strong id="vendorCount">0</strong><small>個資料夾</small></article>
+          <article class="summary-card"><span>聯絡人</span><strong id="contactCount">0</strong><small>張名片</small></article>
+          <article class="summary-card"><span>待同步</span><strong id="pendingCount">0</strong><small>筆離線資料</small></article>
+        </div>
+        <div class="search-panel">
+          <label class="search-box"><svg viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"/></svg><input id="searchInput" type="search" placeholder="搜尋廠商、姓名、電話或信箱" autocomplete="off"><button id="clearSearchBtn" type="button" aria-label="清除搜尋">×</button></label>
+          <div class="filter-row">
+            <label><span class="sr-only">分類</span><select id="categoryFilter"><option value="all">所有分類</option></select></label>
+            <button id="favoriteFilter" class="chip" type="button" aria-pressed="false">☆ 只看收藏</button>
+            <label><span class="sr-only">排序</span><select id="sortSelect"><option value="updated">最近更新</option><option value="vendor">廠商名稱</option><option value="contact">聯絡人</option></select></label>
+          </div>
+        </div>
+        <div id="resultMeta" class="result-meta"></div>
+        <div id="vendorList" class="vendor-list" aria-live="polite"></div>
+        <div id="emptyState" class="empty-state">
+          <div class="empty-visual"><svg viewBox="0 0 96 96"><rect x="17" y="25" width="62" height="46" rx="8"/><path d="M28 42h20M28 51h31M28 60h23"/><circle cx="65" cy="42" r="6"/></svg></div>
+          <h2>還沒有名片資料</h2><p>點下方中央的拍照按鈕，第一張名片約一分鐘就能完成建檔。</p><button id="emptyCaptureBtn" class="btn btn-primary" type="button">拍攝第一張名片</button>
+        </div>
+      </section>
+
+      <section id="capturePage" class="page" data-page="capture">
+        <div class="section-heading"><div><span class="eyebrow">新增記錄</span><h1 id="captureTitle">拍攝名片</h1></div><button id="resetFormBtn" class="text-btn" type="button">清除</button></div>
+        <div class="capture-card">
+          <input id="photoInput" class="sr-only" type="file" accept="image/*" capture="environment">
+          <button id="photoDropzone" class="photo-dropzone" type="button">
+            <div id="cameraPrompt"><span class="camera-ring"><svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3v12H4V7Z"/><circle cx="12" cy="13" r="4"/></svg></span><strong>拍照或選擇名片照片</strong><small>請保持光線均勻、畫面端正且文字清楚</small></div>
+            <img id="photoPreview" alt="名片預覽" hidden><span id="replacePhotoHint" hidden>點一下更換照片</span>
+          </button>
+          <div id="ocrPanel" class="ocr-panel" hidden><div class="progress-head"><span id="ocrStatus">正在辨識文字…</span><strong id="ocrPercent">0%</strong></div><div class="progress-track"><span id="ocrProgress"></span></div></div>
+          <div id="ocrResultNote" class="ocr-result-note" hidden></div>
+        </div>
+        <form id="cardForm" class="form-card" novalidate>
+          <input id="recordId" type="hidden">
+          <div class="field required"><label for="vendorName">廠商名稱</label><input id="vendorName" maxlength="100" autocomplete="organization" placeholder="例如：大同科技股份有限公司" required><small class="field-error"></small></div>
+          <div class="field required"><label for="contactName">聯繫人姓名</label><input id="contactName" maxlength="60" autocomplete="name" placeholder="例如：王小明" required><small class="field-error"></small></div>
+          <div class="field-grid">
+            <div class="field"><label for="phone">電話</label><input id="phone" type="tel" maxlength="40" autocomplete="tel" inputmode="tel" placeholder="04-1234-5678"><small class="field-error"></small></div>
+            <div class="field"><label for="email">電子信箱</label><input id="email" type="email" maxlength="120" autocomplete="email" inputmode="email" placeholder="name@company.com"><small class="field-error"></small></div>
+          </div>
+          <div class="field-grid"><div class="field"><label for="category">分類</label><input id="category" list="categoryList" maxlength="30" placeholder="選擇或輸入分類"><datalist id="categoryList"></datalist></div><div class="field"><label for="jobTitle">職稱</label><input id="jobTitle" maxlength="60" autocomplete="organization-title" placeholder="例如：業務經理"></div></div>
+          <div class="field"><label for="notes">備註</label><textarea id="notes" rows="3" maxlength="500" placeholder="產品、合作內容或其他提醒"></textarea><small class="counter"><span id="notesCount">0</span>/500</small></div>
+          <label class="toggle-row"><span><strong>加入收藏</strong><small>在名片資訊中快速篩選</small></span><input id="favorite" type="checkbox"><i></i></label>
+          <button id="saveCardBtn" class="btn btn-primary btn-block" type="submit"><span>✓</span><span id="saveBtnText">儲存至 Google Drive</span></button>
+          <p class="privacy-note">名片照片與資料會存入「廠商名片管家／廠商名稱」資料夾。</p>
+        </form>
+      </section>
+
+      <section id="settingsPage" class="page" data-page="settings">
+        <div class="section-heading"><div><span class="eyebrow">偏好與連線</span><h1>設定</h1></div><span class="version-pill">V1.0.0</span></div>
+        <section class="settings-card">
+          <div class="settings-title"><span class="google-mark">G</span><div><h2>Google Drive</h2><p id="driveStatusText">尚未連線</p></div></div>
+          <div class="field"><label for="clientIdInput">Google OAuth Client ID</label><input id="clientIdInput" type="text" autocomplete="off" spellcheck="false" placeholder="1234567890-xxxx.apps.googleusercontent.com"><small>Client ID 可公開；請勿填入 Client Secret。</small></div>
+          <div class="button-row"><button id="saveClientIdBtn" class="btn btn-secondary" type="button">儲存設定</button><button id="connectDriveBtn" class="btn btn-primary" type="button">連接 Google Drive</button></div>
+          <div class="drive-details"><div><span>儲存位置</span><strong>我的雲端硬碟／廠商名片管家</strong></div><div><span>上次同步</span><strong id="lastSyncText">尚未同步</strong></div></div>
+          <div class="button-row compact"><button id="syncNowBtn" class="text-btn" type="button">立即同步</button><button id="disconnectBtn" class="text-btn danger" type="button" hidden>中斷連線</button></div>
+        </section>
+        <section class="settings-card"><h2>辨識與顯示</h2><label class="toggle-row"><span><strong>拍照後自動辨識</strong><small>自動擷取公司、姓名、電話與信箱</small></span><input id="autoOcrToggle" type="checkbox" checked><i></i></label><label class="toggle-row"><span><strong>深色模式</strong><small>適合低光環境使用</small></span><input id="themeToggle" type="checkbox"><i></i></label></section>
+        <section class="settings-card"><div class="settings-title"><span class="update-icon">↻</span><div><h2>版本更新</h2><p id="updateStatusText">開啟程式時自動檢查</p></div></div><div class="version-grid"><div><span>目前版本</span><strong id="currentVersion">V1.0.0</strong></div><div><span>最新版本</span><strong id="latestVersion">檢查中</strong></div></div><button id="checkUpdateBtn" class="btn btn-secondary btn-block" type="button">檢查更新</button></section>
+        <section class="settings-card guide-card"><h2>首次設定說明</h2><ol><li>在 Google Cloud 啟用 Google Drive API。</li><li>建立「網頁應用程式」OAuth 用戶端。</li><li>加入 GitHub Pages 網址為已授權 JavaScript 來源。</li><li>將 Client ID 貼至上方並連接 Drive。</li></ol><details><summary>為什麼可以辨識名片？</summary><p>OCR 會直接在本機瀏覽器處理照片，支援繁體中文與英文；影像不會因辨識而上傳到第三方 OCR 服務。完成校正並儲存後，才會寫入你的 Google Drive。</p></details></section>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="主要分頁">
+      <button class="nav-btn active" data-target="info" type="button"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 9h8M8 13h8M8 17h5"/></svg><span>名片資訊</span></button>
+      <button class="nav-btn capture-nav" data-target="capture" type="button"><span class="capture-fab"><svg viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3v12H4V7Z"/><circle cx="12" cy="13" r="4"/></svg></span><span>名片記錄</span></button>
+      <button class="nav-btn" data-target="settings" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3.1 14H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3.1V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span>設定</span></button>
+    </nav>
+  </div>
+
+  <dialog id="detailDialog" class="detail-dialog">
+    <div class="dialog-head"><div><span id="detailCategory" class="category-tag"></span><h2 id="detailVendor"></h2></div><button class="icon-btn" data-close-dialog type="button" aria-label="關閉">×</button></div>
+    <div id="detailPhotoWrap" class="detail-photo-wrap"><div class="image-loader">載入名片照片…</div><img id="detailPhoto" alt="名片照片" hidden></div>
+    <div class="detail-person"><div class="avatar" id="detailAvatar"></div><div><h3 id="detailName"></h3><p id="detailJob"></p></div><button id="detailFavoriteBtn" class="favorite-btn" type="button">☆</button></div>
+    <div class="contact-actions"><a id="detailPhone" href="#"><span>☎</span><small>電話</small></a><a id="detailEmail" href="#"><span>✉</span><small>信箱</small></a></div>
+    <div id="detailNotes" class="detail-notes"></div><div class="detail-meta"><span id="detailUpdated"></span><span>Google Drive 已同步</span></div>
+    <div class="button-row"><button id="editRecordBtn" class="btn btn-secondary" type="button">編輯資料</button><button id="deleteRecordBtn" class="btn btn-danger" type="button">刪除</button></div>
+  </dialog>
+  <dialog id="confirmDialog" class="confirm-dialog"><div class="confirm-icon">!</div><h2 id="confirmTitle">確認操作</h2><p id="confirmMessage"></p><div class="button-row"><button id="confirmCancel" class="btn btn-secondary" type="button">取消</button><button id="confirmOk" class="btn btn-danger" type="button">確認刪除</button></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="busyOverlay" class="busy-overlay" hidden><div class="spinner"></div><strong id="busyText">處理中…</strong></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
