@@ -14,7 +14,7 @@
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" defer></script>
 </head>
 <body>
   <div id="app">
@@ -69,7 +69,7 @@
         </div>
         <form id="cardForm" class="form-card" novalidate>
           <input id="recordId" type="hidden">
-          <div class="field required"><label for="vendorName">廠商名稱</label><input id="vendorName" maxlength="100" autocomplete="organization" placeholder="例如：大同科技股份有限公司" required><small class="field-error"></small></div>
+          <p id="draftStatus" class="settings-footnote" role="status">文字與照片會自動保留為草稿</p><div class="field required"><label for="vendorName">廠商名稱</label><input id="vendorName" maxlength="100" autocomplete="organization" placeholder="例如：大同科技股份有限公司" required><small class="field-error"></small></div>
           <div class="field required"><label for="contactName">聯繫人姓名</label><input id="contactName" maxlength="60" autocomplete="name" placeholder="例如：王小明" required><small class="field-error"></small></div>
           <div class="field-grid">
             <div class="field"><label for="phone">電話</label><input id="phone" type="tel" maxlength="40" autocomplete="tel" inputmode="tel" placeholder="04-1234-5678"><small class="field-error"></small></div>
@@ -84,7 +84,7 @@
       </section>
 
       <section id="settingsPage" class="page" data-page="settings">
-        <div class="section-heading"><div><span class="eyebrow">偏好與連線</span><h1>設定</h1></div><span class="version-pill">V1.2.0</span></div>
+        <div class="section-heading"><div><span class="eyebrow">偏好與連線</span><h1>設定</h1></div><span class="version-pill">V1.3.0</span></div>
         <section class="settings-card">
           <div class="settings-title"><span class="google-mark">G</span><div><h2>Google Drive</h2><p id="driveStatusText">尚未連線</p></div></div>
           <div class="field"><label for="clientIdInput">Google OAuth Client ID</label><input id="clientIdInput" type="text" autocomplete="off" spellcheck="false" placeholder="1234567890-xxxx.apps.googleusercontent.com"><small>Client ID 可公開；請勿填入 Client Secret。</small></div>
@@ -92,13 +92,13 @@
           <div class="permission-note"><strong>權限說明</strong><span>寫入既有資料夾需要完整 Drive 授權；程式只會操作上方指定的位置。</span></div>
           <div class="button-row"><button id="saveClientIdBtn" class="btn btn-secondary" type="button">儲存連線設定</button><button id="connectDriveBtn" class="btn btn-primary" type="button">連接 Google Drive</button></div>
           <div class="drive-details"><div><span>目前儲存位置</span><strong id="driveLocationText">預設資料夾（尚未驗證）</strong><a id="openFolderLink" class="inline-link" href="https://drive.google.com/drive/folders/1PqDRkf6ip0kp60i1BRgsMTMt2aCmvLum" target="_blank" rel="noopener">開啟資料夾 ↗</a></div><div><span>上次同步</span><strong id="lastSyncText">尚未同步</strong></div></div>
-          <label class="toggle-row auto-connect-row"><span><strong>開啟後自動連線與同步</strong><small>優先靜默恢復；Google 要求時於第一次操作完成帳號確認</small></span><input id="autoConnectToggle" type="checkbox" checked><i></i></label>
+          <label class="toggle-row auto-connect-row"><span><strong>開啟後自動連線與同步</strong><small>沿用此分頁有效授權；授權過期時點一下登入即可恢復</small></span><input id="autoConnectToggle" type="checkbox" checked><i></i></label>
           <div class="button-row compact"><button id="syncNowBtn" class="text-btn" type="button">立即同步</button><button id="disconnectBtn" class="text-btn danger" type="button" hidden>中斷連線</button></div>
         </section>
         <section class="settings-card"><h2>辨識與顯示</h2><label class="toggle-row"><span><strong>拍照後自動辨識</strong><small>自動擷取公司、姓名、電話與信箱</small></span><input id="autoOcrToggle" type="checkbox" checked><i></i></label><label class="toggle-row"><span><strong>深色模式</strong><small>適合低光環境使用</small></span><input id="themeToggle" type="checkbox"><i></i></label></section>
         <section class="settings-card category-manager-card"><div class="settings-title"><span class="category-manager-icon">≡</span><div><h2>分類管理</h2><p>此清單會同步到新增名片的分類選單</p></div></div><div class="manage-category-row"><input id="manageCategoryInput" maxlength="30" autocomplete="off" placeholder="輸入新分類名稱"><button id="addManagedCategoryBtn" class="btn btn-primary" type="button">新增</button></div><div id="managedCategoryList" class="managed-category-list"></div><p id="categorySyncNote" class="settings-footnote">連接 Drive 後會跨裝置同步。</p></section>
-        <section class="settings-card"><div class="settings-title"><span class="update-icon">↻</span><div><h2>版本更新</h2><p id="updateStatusText">開啟程式時自動檢查</p></div></div><div class="version-grid"><div><span>目前版本</span><strong id="currentVersion">V1.2.0</strong></div><div><span>最新版本</span><strong id="latestVersion">檢查中</strong></div></div><button id="checkUpdateBtn" class="btn btn-secondary btn-block" type="button">檢查更新</button></section>
-        <section class="settings-card guide-card"><h2>首次設定說明</h2><ol><li>在 Google Cloud 啟用 Google Drive API。</li><li>建立「網頁應用程式」OAuth 用戶端。</li><li>加入 GitHub Pages 網址為已授權 JavaScript 來源。</li><li>填入 Client ID 與雲端資料夾位置後連接 Drive。</li></ol><details><summary>為什麼可以辨識名片？</summary><p>OCR 會直接在本機瀏覽器處理照片，支援繁體中文與英文；影像不會因辨識而上傳到第三方 OCR 服務。完成校正並儲存後，才會寫入你的 Google Drive。</p></details></section>
+        <section class="settings-card"><div class="settings-title"><span class="update-icon">↻</span><div><h2>版本更新</h2><p id="updateStatusText">開啟程式時自動檢查</p></div></div><div class="version-grid"><div><span>目前版本</span><strong id="currentVersion">V1.3.0</strong></div><div><span>最新版本</span><strong id="latestVersion">檢查中</strong></div></div><button id="checkUpdateBtn" class="btn btn-secondary btn-block" type="button">檢查更新</button></section>
+        <section class="settings-card"><h2>同步與資料保護</h2><p id="scopeLabel" class="settings-footnote"></p><h3>待同步清單</h3><div id="pendingList"></div><h3>版本衝突</h3><div id="conflictList"></div><p id="importStatus" class="settings-footnote"></p><button id="importLocalBtn" type="button" class="btn btn-secondary btn-block" hidden>匯入本機待認領資料</button><button id="exportBackupBtn" type="button" class="btn btn-secondary btn-block">匯出資料與待同步備份</button><p class="settings-footnote">備份包含文字、待同步照片與草稿；已同步照片仍在 Drive，請另行備份廠商資料夾。</p><details><summary>已封存名片（可復原）</summary><div id="deletedList"></div></details></section><section class="settings-card guide-card"><h2>首次設定說明</h2><ol><li>在 Google Cloud 啟用 Google Drive API。</li><li>建立「網頁應用程式」OAuth 用戶端。</li><li>加入 GitHub Pages 網址為已授權 JavaScript 來源。</li><li>填入 Client ID 與雲端資料夾位置後連接 Drive。</li></ol><details><summary>為什麼可以辨識名片？</summary><p>OCR 會直接在本機瀏覽器處理照片，支援繁體中文與英文；影像不會因辨識而上傳到第三方 OCR 服務。完成校正並儲存後，才會寫入你的 Google Drive。</p></details></section>
       </section>
     </main>
 
@@ -115,12 +115,17 @@
     <div id="detailPhotoWrap" class="detail-photo-wrap"><div class="image-loader">載入名片照片…</div><img id="detailPhoto" alt="名片照片" hidden></div>
     <div class="detail-person"><div class="avatar" id="detailAvatar"></div><div><h3 id="detailName"></h3><p id="detailJob"></p></div><button id="detailFavoriteBtn" class="favorite-btn" type="button">☆</button></div>
     <div class="contact-actions"><a id="detailPhone" href="#"><span>☎</span><small>電話</small></a><a id="detailEmail" href="#"><span>✉</span><small>信箱</small></a></div>
-    <div id="detailNotes" class="detail-notes"></div><div class="detail-meta"><span id="detailUpdated"></span><span>Google Drive 已同步</span></div>
-    <div class="button-row"><button id="editRecordBtn" class="btn btn-secondary" type="button">編輯資料</button><button id="deleteRecordBtn" class="btn btn-danger" type="button">刪除</button></div>
+    <div id="detailNotes" class="detail-notes"></div><div class="detail-meta"><span id="detailUpdated"></span><span id="detailSyncStatus"></span></div>
+    <div class="button-row"><button id="editRecordBtn" class="btn btn-secondary" type="button">編輯資料</button><button id="deleteRecordBtn" class="btn btn-danger" type="button">封存</button></div>
   </dialog>
   <dialog id="confirmDialog" class="confirm-dialog"><div class="confirm-icon">!</div><h2 id="confirmTitle">確認操作</h2><p id="confirmMessage"></p><div class="button-row"><button id="confirmCancel" class="btn btn-secondary" type="button">取消</button><button id="confirmOk" class="btn btn-danger" type="button">確認刪除</button></div></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="busyOverlay" class="busy-overlay" hidden><div class="spinner"></div><strong id="busyText">處理中…</strong></div>
+  <dialog id="conflictDialog" class="detail-dialog"><div class="dialog-head"><h2>選擇保留的名片版本</h2><button id="closeConflictBtn" class="icon-btn" type="button" aria-label="關閉">×</button></div><p>各份原始修訂均保留在 Drive。採用版本前請核對以下內容。</p><div id="conflictOptions"></div></dialog>
+  <script src="./data-core.js" defer></script>
+  <script src="./storage.js" defer></script>
+  <script src="./drive-store.js" defer></script>
+  <script src="./ui.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>
