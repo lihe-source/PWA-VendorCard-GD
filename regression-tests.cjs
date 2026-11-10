@@ -10,7 +10,7 @@ const source=name=>fs.readFileSync(path.join(__dirname,name),'utf8');
 function base(extra={}){
   const c=vm.createContext({console,URL,URLSearchParams,Headers,Request,Response,Blob,AbortController,crypto:webcrypto,
     setTimeout:(fn,ms)=>{const t=setTimeout(fn,ms);t.unref();return t;},clearTimeout,setInterval:()=>0,clearInterval,...extra});
-  vm.runInContext(source('data-core.js'),c);return c;
+  vm.runInContext(source('ocr-parser.js'),c);vm.runInContext(source('data-core.js'),c);return c;
 }
 const r=(id='a',more={})=>({id,vendorName:'A 廠商',contactName:'王小明',phone:'0912345678',updatedAt:'2026-09-01T00:00:00Z',...more});
 const rev=(id,parents=[],more={})=>({id,kind:'record',parents,action:'upsert',record:r(),createdAt:id,...more});
@@ -106,7 +106,7 @@ function runtime(){
   const c=base({VcmStorage:S,document:{getElementById:element,querySelectorAll:()=>[],addEventListener(){},body:{classList:{toggle(){}}}},
     navigator:{onLine:true},location:{hash:'',protocol:'https:'},window:{scrollTo(){}},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},
     sessionStorage:{getItem:()=>null,setItem(){},removeItem(){}},structuredClone});
-  c.window=c;vm.runInContext(source('ui.js'),c);vm.runInContext(source('drive-store.js'),c);vm.runInContext(source('app.js'),c);
+  c.window=c;vm.runInContext(source('ui.js'),c);vm.runInContext(source('drive-store.js'),c);vm.runInContext(source('app.js'),c);vm.runInContext(source('capture.js'),c);
   vm.runInContext("renderAll=()=>{};renderRecords=()=>{};renderCategoryManager=()=>{};renderCategoryPicker=()=>{};updateConnectionUi=()=>{};showPage=()=>{};toast=(message)=>globalThis.lastToast=message;state.scope='account|folder';state.ready=true;",c);
   return {c,element,stores,run:code=>vm.runInContext(code,c)};
 }
@@ -144,13 +144,13 @@ test('draft includes the photo and preserves field values',async()=>{
 });
 test('late OCR result from a replaced photo cannot populate the current form',async()=>{
   const t=runtime();let resolve;const deferred=new Promise(r=>resolve=r);
-  t.c.Tesseract={createWorker:async()=>({recognize:()=>deferred,terminate:async()=>{}})};
+  t.c.Tesseract={createWorker:async()=>({setParameters:async()=>{},recognize:()=>deferred,terminate:async()=>{}})};
   const work=t.run("runOcr(new Blob(['old']))");await new Promise(r=>setImmediate(r));t.run('state.photoGeneration++');
   resolve({data:{text:'大同科技股份有限公司\n王小明\nTEL: 04-23456789',confidence:90}});await work;
   assert.equal(t.element('contactName').value,'');
 });
 test('OCR preserves manual input made while recognition is running',async()=>{
-  const t=runtime();let resolve;const deferred=new Promise(r=>resolve=r);t.c.Tesseract={createWorker:async()=>({recognize:()=>deferred,terminate:async()=>{}})};
+  const t=runtime();let resolve;const deferred=new Promise(r=>resolve=r);t.c.Tesseract={createWorker:async()=>({setParameters:async()=>{},recognize:()=>deferred,terminate:async()=>{}})};
   const work=t.run("runOcr(new Blob(['image']))");await new Promise(r=>setImmediate(r));t.element('contactName').value='陳大文';t.run('state.fieldEdits.contactName=1');
   resolve({data:{text:'大同科技股份有限公司\n王小明\nTEL: 04-23456789',confidence:90}});await work;assert.equal(t.element('contactName').value,'陳大文');
 });
@@ -158,7 +158,7 @@ test('all local HTML assets and manifest icons exist, IDs are unique',()=>{
   const html=source('index.html'),ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(new Set(ids).size,ids.length);
   for(const m of html.matchAll(/(?:src|href)="\.\/([^"#?]+)"/g))assert.ok(fs.existsSync(path.join(__dirname,m[1])),m[1]);
   const manifest=JSON.parse(source('manifest.webmanifest'));for(const icon of manifest.icons)assert.ok(fs.existsSync(path.join(__dirname,icon.src)));
-  assert.equal(JSON.parse(source('version.json')).version,'1.3.0');
+  assert.equal(JSON.parse(source('version.json')).version,'1.4.0');
   for(const file of ['app.js','ui.js'])for(const m of source(file).matchAll(/\$\('([^']+)'\)/g))assert.ok(ids.includes(m[1]),`${file}: missing ${m[1]}`);
 });
 test('IndexedDB request success does not acknowledge a transaction that later aborts',async()=>{
@@ -183,4 +183,53 @@ test('an in-flight old-scope read cannot replace the newly selected account view
   const t=runtime();let resolve;t.c.VcmStorage.pending=()=>new Promise(r=>resolve=r);
   const work=t.run('refreshLocal()');t.run("state.scope='other|folder';state.pending=[];");resolve([{...rev('old'),scope:'account|folder'}]);
   await work;assert.equal(t.run('state.pending.length'),0);
+});
+test('TEL and FAX on a shared line are kept separate',()=>{
+ const o=base().VcmOcr.analyze([{text:'FAX: 04-22334455 TEL: 04-23456789 #123',confidence:90}]);
+ assert.equal(o.suggested.phone,'04-23456789 #123');assert.equal(o.candidates.phone.length,1);
+});
+test('shared phone and email line yields both candidates',()=>{
+ const o=base().VcmOcr.analyze([{text:'TEL: 04-23456789 sales@example.com',confidence:90}]);
+ assert.equal(o.suggested.phone,'04-23456789');assert.equal(o.suggested.email,'sales@example.com');
+});
+test('uncertain digits are suggestions only, never automatically corrected',()=>{
+ const o=base().VcmOcr.analyze([{text:'TEL: O4-23456789',confidence:95}]);
+ assert.equal(o.suggested.phone,'04-23456789');assert.equal(o.automatic.phone,undefined);assert.equal(o.candidates.phone[0].corrected,true);
+});
+test('conflicting readings suppress automatic phone filling',()=>{
+ const o=base().VcmOcr.analyze([{text:'Mobile: 0912-345-678',confidence:95},{text:'Mobile: 0912-345-679',confidence:95}]);
+ assert.equal(o.candidates.phone.length,2);assert.equal(o.automatic.phone,undefined);
+});
+test('low confidence and generic Chinese phrases are not blindly auto-filled',()=>{
+ const o=base().VcmOcr.analyze([{text:'專業服務\n姓名: 王小明\n範例科技有限公司\nTEL: 04-23456789',confidence:35}]);
+ assert.equal(o.suggested.contactName,'王小明');assert.equal(Object.keys(o.automatic).length,0);
+});
+test('spaced Chinese name and adjacent title are parsed independently',()=>{
+ const o=base().VcmOcr.mergeText('王 小 明 業務經理');assert.equal(o.suggested.contactName,'王小明');assert.equal(o.suggested.jobTitle,'業務經理');
+});
+test('email separators are normalized without guessing O/0 or l/1',()=>{
+ const o=base().VcmOcr.mergeText('Email: user.Ol @ example . com');assert.equal(o.suggested.email,'user.Ol@example.com');
+});
+test('a bare tax ID or postal address does not become a telephone',()=>{
+ const o=base().VcmOcr.mergeText('統一編號 12345678\n台中市北區中清路123號');assert.equal(o.suggested.phone,undefined);
+});
+test('cancelling an unresolved recognition releases the busy state',async()=>{
+ const t=runtime();let terminated=0;t.c.Tesseract={createWorker:async()=>({setParameters:async()=>{},recognize:()=>new Promise(()=>{}),terminate:async()=>terminated++})};
+ const work=t.run("runOcr(new Blob(['test']))");await new Promise(r=>setImmediate(r));t.run('cancelOcr()');await work;
+ assert.equal(t.run('state.ocrBusy'),false);assert.equal(terminated,1);
+});
+test('completed OCR reuses its worker for the next recognition',async()=>{
+ const t=runtime();let count=0;t.element('ocrMode').value='quick';
+ t.c.Tesseract={createWorker:async()=>{count++;return {setParameters:async()=>{},recognize:async()=>({data:{text:'範例科技有限公司\nsales@example.com',confidence:95}}),terminate:async()=>{}};}};
+ await t.run("runOcr(new Blob(['first']))");await t.run("runOcr(new Blob(['second']))");assert.equal(count,1);
+ assert.equal(t.element('vendorName').value,'範例科技有限公司');assert.equal(t.run('state.ocrNeedsReview'),true);
+});
+test('OCR never replaces an existing manually filled company name',async()=>{
+ const t=runtime();t.element('vendorName').value='已核對公司';t.element('ocrMode').value='quick';
+ t.c.Tesseract={createWorker:async()=>({setParameters:async()=>{},recognize:async()=>({data:{text:'其他科技有限公司',confidence:99}}),terminate:async()=>{}})};
+ await t.run("runOcr(new Blob(['photo']))");assert.equal(t.element('vendorName').value,'已核對公司');
+});
+test('unreviewed OCR data cannot be submitted to the outbox',async()=>{
+ const t=runtime();t.element('ocrReviewPanel').scrollIntoView=()=>{};
+ await t.run("state.ocrNeedsReview=true;saveForm({preventDefault(){}})");assert.equal(t.stores.outbox.size,0);assert.match(t.c.lastToast,/已核對/);
 });

@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION='1.3.0';
+const APP_VERSION='1.4.0';
 const DEFAULT_DRIVE_FOLDER_URL='https://drive.google.com/drive/folders/1PqDRkf6ip0kp60i1BRgsMTMt2aCmvLum';
 const DRIVE_SCOPE='https://www.googleapis.com/auth/drive';
 const $=id=>document.getElementById(id);
@@ -16,6 +16,7 @@ const state={token:'',tokenExpiresAt:0,connected:false,rootFolderId:'',rootFolde
   photoBlob:null,previewUrl:'',detailPhotoUrl:'',activeRecord:null,activeVendor:null,photoGeneration:0,detailGeneration:0,
   editBase:[],editRecord:null,ocrValues:{},fieldEdits:{},syncing:false,saving:false,photoLoading:false,authInFlight:false,
   confirmAction:null,updateLocked:false,ready:false,ocrBusy:false,switching:false};
+let draftSaveTimer;
 let draftChain=Promise.resolve(),tokenClient=null,authAttempt=null,googleTimer=null,ocrWorker=null,ocrTail=Promise.resolve(),ocrIdleTimer=null,ocrEpoch=0;
 let tabId=sessionStorage.getItem('vcm.tabId');if(!tabId){tabId=uid();sessionStorage.setItem('vcm.tabId',tabId);}
 const draftKey=()=>`${state.scope}|draft:${tabId}`;
@@ -24,10 +25,11 @@ function confirmDo(title,message,fn,label='確認'){
   $('confirmTitle').textContent=title;$('confirmMessage').textContent=message;$('confirmOk').textContent=label;
   state.confirmAction=async()=>{try{await fn();}catch(e){toast(humanizeError(e),'error');}};$('confirmDialog').showModal();
 }
-function hasWork(){return state.saving||state.syncing||state.photoLoading||state.ocrBusy||state.authInFlight||state.switching;}
+function hasWork(){return state.saving||state.syncing||state.photoLoading||state.ocrBusy||state.authInFlight||state.switching||state.imageEditing;}
 function captureDraft(){return {scope:state.scope,updatedAt:nowIso(),values:Object.fromEntries(fields.map(k=>[k,$(k).value])),favorite:$('favorite').checked,
-  photoBlob:state.photoBlob,editBase:state.editBase,editRecord:state.editRecord,ocrValues:state.ocrValues};}
+  photoBlob:state.photoBlob,editBase:state.editBase,editRecord:state.editRecord,ocrValues:state.ocrValues,ocrReview:state.ocrReview||null,ocrNeedsReview:!!state.ocrNeedsReview,fieldEdits:state.fieldEdits};}
 function saveDraft(){
+  clearTimeout(draftSaveTimer);
   if(!state.ready||!state.scope)return Promise.resolve();
   const draft=captureDraft(),key=draftKey();
   const nonempty=draft.photoBlob||draft.favorite||Object.values(draft.values).some(Boolean);
@@ -36,7 +38,7 @@ function saveDraft(){
     $('draftStatus').textContent='草稿儲存失敗，請勿關閉頁面；檢查裝置儲存空間。';throw e;
   });
 }
-function saveDraftSoon(){saveDraft().catch(()=>{});}
+function saveDraftSoon(){clearTimeout(draftSaveTimer);draftSaveTimer=setTimeout(()=>saveDraft().catch(()=>{}),200);}
 function displayPhoto(blob){
   if(state.previewUrl)URL.revokeObjectURL(state.previewUrl);
   state.photoBlob=blob;state.previewUrl=blob?URL.createObjectURL(blob):'';
@@ -49,6 +51,7 @@ async function loadDraft(){
   if(!draft)return;
   for(const k of fields)$(k).value=String(draft.values?.[k]||'');
   $('favorite').checked=!!draft.favorite;state.editBase=draft.editBase||[];state.editRecord=draft.editRecord||null;state.ocrValues=draft.ocrValues||{};
+  state.fieldEdits=draft.fieldEdits||{};state.ocrReview=draft.ocrReview||null;state.ocrNeedsReview=!!draft.ocrNeedsReview;if(state.ocrReview){renderOcrReview();$('ocrReviewed').checked=!state.ocrNeedsReview;}
   displayPhoto(draft.photoBlob||null);$('notesCount').textContent=$('notes').value.length;
   $('captureTitle').textContent=$('recordId').value?'編輯名片':'拍攝名片';$('draftStatus').textContent='已復原尚未完成的草稿';
 }
@@ -107,7 +110,7 @@ async function queueRecord(record,action='upsert',blob=null,parents=[],clearDraf
   return op;
 }
 async function saveForm(event){
-  event.preventDefault();if(state.saving||state.updateLocked||state.photoLoading||state.switching||!validateForm())return;
+  event.preventDefault();if(state.ocrBusy)return toast('請等待辨識完成，或先按「取消辨識」');if(state.ocrNeedsReview){$('ocrReviewPanel').scrollIntoView({behavior:'smooth',block:'start'});return toast('請核對名片原圖與欄位，勾選「已核對」後再儲存','error');}if(state.saving||state.updateLocked||state.photoLoading||state.switching||!validateForm())return;
   const category=D.normalize($('category').value),known=managedCategories().find(c=>D.key(c)===D.key(category));
   if(category&&!known&&category!==state.editRecord?.category){openCategoryMenu();return toast('請從選單選擇分類，或按「新增」建立此分類','error');}
   if(known)$('category').value=known;
@@ -281,57 +284,6 @@ async function importLocal(){
     await refreshLocal();renderAll();await updateImportStatus();await syncNow();
   },'確認匯入');
 }
-async function handlePhoto(event){
-  const file=event.target.files?.[0];event.target.value='';if(!file||state.updateLocked)return;
-  if(!file.type.startsWith('image/'))return toast('請選擇照片檔案','error');
-  if(file.size>25*1024*1024)return toast('照片超過 25 MB，請選擇較小照片','error');
-  const generation=++state.photoGeneration;state.photoLoading=true;
-  try{const blob=await compressImage(file);if(generation!==state.photoGeneration)return;
-    if(blob.size>5*1024*1024)throw new Error('壓縮後照片仍超過 5 MB');
-    displayPhoto(blob);await saveDraft();if(prefs.autoOcr||event.target.id==='uploadInput')void runOcr(blob);
-  }catch(e){toast(humanizeError(e,'照片無法讀取，HEIC 請轉為 JPEG 後重試'),'error');}
-  finally{if(generation===state.photoGeneration)state.photoLoading=false;}
-}
-async function getOcrWorker(){
-  if(ocrWorker)return ocrWorker;
-  if(!window.Tesseract)throw new Error('OCR 元件尚未載入，需要網路下載');
-  const epoch=ocrEpoch;
-  const worker=await Tesseract.createWorker('chi_tra+eng',1,{logger:m=>{
-    if(!state.ocrBusy)return;const percent=Math.round((m.progress||0)*100);
-    $('ocrProgress').style.width=`${percent}%`;$('ocrPercent').textContent=`${percent}%`;
-    $('ocrStatus').textContent=m.status==='recognizing text'?'正在辨識名片文字':'載入繁中與英文辨識模型…';
-  }});
-  if(epoch!==ocrEpoch){await worker.terminate();throw new Error('辨識工作已取消');}
-  ocrWorker=worker;return ocrWorker;
-}
-function runOcr(blob){
-  const generation=state.photoGeneration,edits={...state.fieldEdits};
-  clearTimeout(ocrIdleTimer);
-  const run=async()=>{
-    if(generation!==state.photoGeneration)return;
-    state.ocrBusy=true;$('analyzePhotoBtn').disabled=true;$('ocrPanel').hidden=false;$('ocrResultNote').hidden=true;
-    let timer;
-    try{
-      const job=(async()=>{const worker=await getOcrWorker();return worker.recognize(blob);})();
-      const result=await Promise.race([job,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('辨識逾時')),120000);})]);
-      if(generation!==state.photoGeneration)return;
-      const parsed=D.parseBusinessCard(result.data.text);
-      for(const key of ['vendorName','contactName','phone','email','jobTitle']){
-        const unchanged=(state.fieldEdits[key]||0)===(edits[key]||0);
-        if(unchanged&&(!$(key).value||$(key).value===state.ocrValues[key])&&parsed[key]){$(key).value=parsed[key];state.ocrValues[key]=parsed[key];}
-      }
-      await saveDraft();$('ocrResultNote').textContent=`辨識完成，文字信心 ${Math.round(result.data.confidence||0)}%。公司與姓名可能辨識不準，請逐欄確認。`;
-      $('ocrResultNote').hidden=false;
-    }catch(e){
-      ocrEpoch++;if(ocrWorker){void ocrWorker.terminate();ocrWorker=null;}
-      if(generation===state.photoGeneration){$('ocrResultNote').hidden=false;$('ocrResultNote').textContent='辨識未完成，照片與已輸入資料仍保留；可重試或手動填寫。';}
-    }finally{
-      clearTimeout(timer);state.ocrBusy=false;$('analyzePhotoBtn').disabled=false;$('ocrPanel').hidden=true;
-      ocrIdleTimer=setTimeout(()=>{if(ocrWorker&&!state.ocrBusy){void ocrWorker.terminate();ocrWorker=null;}},90000);
-    }
-  };
-  ocrTail=ocrTail.catch(()=>{}).then(run);return ocrTail;
-}
 async function openDetail(id){
   const info=findRecord(id);if(!info)return;
   state.activeRecord=info.record;state.activeVendor=info.vendor;const r=info.record,generation=++state.detailGeneration,scope=state.scope;
@@ -404,11 +356,13 @@ async function checkForUpdate(manual=false){
 }
 async function registerServiceWorker(){
   if(!('serviceWorker'in navigator)||location.protocol==='file:')return;
+  const hadController=!!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('message',e=>{
     if(e.data?.type==='PREPARE_UPDATE'){prepareRequest={id:e.data.requestId,worker:e.source};void readyForUpdate();}
     if(e.data?.type==='UPDATE_CANCELLED'){state.updateLocked=false;setBusy(false);prepareRequest=null;$('updateStatusText').textContent='其他分頁尚在工作，稍後會再試';}
   });
   navigator.serviceWorker.addEventListener('controllerchange',async()=>{
+    if(!hadController)return;
     if(refreshing)return;refreshing=true;
     while(hasWork())await new Promise(r=>setTimeout(r,300));
     try{await saveDraft();location.reload();}catch(e){refreshing=false;state.updateLocked=false;toast('草稿未儲存，請先保留資料再重新載入','error');}
@@ -423,12 +377,12 @@ async function registerServiceWorker(){
 }
 async function init(){
   sessionStorage.removeItem('vcm.accessToken');sessionStorage.removeItem('vcm.tokenExpiresAt');
-  applyPreferences();bindEvents();$('currentVersion').textContent=`V${APP_VERSION}`;
-  $('cardForm').addEventListener('input',e=>{if(e.target.id)state.fieldEdits[e.target.id]=(state.fieldEdits[e.target.id]||0)+1;saveDraftSoon();});
+  applyPreferences();bindEvents();setupCapture();$('currentVersion').textContent=`V${APP_VERSION}`;
+  $('cardForm').addEventListener('input',e=>{if(e.target.id)state.fieldEdits[e.target.id]=(state.fieldEdits[e.target.id]||0)+1;if(state.ocrReview&&VcmOcr.keys.includes(e.target.id)){state.ocrNeedsReview=true;$('ocrReviewed').checked=false;}saveDraftSoon();});
   $('importLocalBtn').onclick=importLocal;$('exportBackupBtn').onclick=()=>exportBackup().catch(e=>toast(humanizeError(e),'error'));
   $('closeConflictBtn').onclick=()=>$('conflictDialog').close();
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)saveDraftSoon();else{if(state.connected)void syncNow(false);void checkForUpdate();}});
-  window.addEventListener('beforeunload',e=>{if(state.photoLoading||state.saving){e.preventDefault();e.returnValue='';}});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)void saveDraft().catch(()=>{});else{if(state.connected)void syncNow(false);void checkForUpdate();}});
+  window.addEventListener('beforeunload',e=>{if(state.photoLoading||state.saving||state.ocrBusy){e.preventDefault();e.returnValue='';}});
   window.addEventListener('unhandledrejection',e=>{console.error(e.reason);toast(humanizeError(e.reason,'操作失敗，請保留目前資料後重試'),'error');});
   // manipulation disables double-tap zoom; 16px fields avoid focus zoom on iOS.
   document.addEventListener('dblclick',e=>{if(e.target.closest('button,a,label,.photo-dropzone'))e.preventDefault();});

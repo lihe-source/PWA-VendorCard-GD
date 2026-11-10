@@ -61,28 +61,8 @@ globalThis.VcmData = (() => {
   }
   function sameHeads(a,b) { return JSON.stringify([...a].sort())===JSON.stringify([...b].sort()); }
   function parseBusinessCard(text) {
-    const lines = String(text).normalize('NFKC').split(/\r?\n/).map(normalize).filter(Boolean);
-    const email = (lines.join(' ').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)||[''])[0];
-    const number = line => (line.match(/(?:\+?886[\s-]?)?(?:\(?0?\d{1,3}\)?[\s-]?)?\d{3,4}[\s-]?\d{3,4}(?:\s*(?:#|ext\.?|分機)\s*\d+)?/gi)||[]).find(p=>p.replace(/\D/g,'').length>=8)||'';
-    // A fax-only number must never be presented as the voice telephone.
-    const phoneLines = lines.filter(l=>!/@|FAX|傳真/i.test(l));
-    const phone = phoneLines.filter(l=>/mobile|cell|手機|行動/i.test(l)).map(number).find(Boolean)
-      || phoneLines.filter(l=>/TEL|電話/i.test(l)).map(number).find(Boolean) || phoneLines.map(number).find(Boolean)||'';
-    const vendorWords = /股份有限公司|有限公司|企業社|工作室|商行|科技|工業|電子|機械|精密|實業|國際|公司|集團|CO\.?\s*,?\s*LTD|CORP(?:ORATION)?|COMPANY|TECHNOLOGY|INDUSTRIES|GROUP/i;
-    const vendorName = lines.find(l=>vendorWords.test(l)&&!/@|https?:|www\./i.test(l)) || '';
-    const titlePattern = /董事長|總經理|副總(?:經理)?|(?:業務|採購)?經理|主任|工程師|業務|採購|專員|顧問|執行長|CEO|CFO|CTO|MANAGER|ENGINEER|SALES|DIRECTOR|SPECIALIST/i;
-    const titleLine = lines.find(l=>l!==vendorName && titlePattern.test(l) && !/@|https?:|www\./i.test(l))||'';
-    const candidates = lines.filter(l=>l!==vendorName&&!/@|https?:|www\.|地址|TEL|FAX|電話|手機|\d/i.test(l));
-    let contactName = candidates.find(l=>/^[\u3400-\u9fff·‧]{2,5}$/.test(l)&&!titlePattern.test(l))||'';
-    let jobTitle = titleLine;
-    if(titleLine){
-      const split = titleLine.match(/^([\u3400-\u9fff·‧]{2,5})\s+(.+)$/);
-      const reverse = titleLine.match(/^(.+?)\s+([\u3400-\u9fff·‧]{2,5})$/);
-      if(split&&titlePattern.test(split[2])) {contactName=contactName||split[1];jobTitle=split[2];}
-      else if(reverse&&titlePattern.test(reverse[1])) {contactName=contactName||reverse[2];jobTitle=reverse[1];}
-    }
-    contactName = contactName || candidates.find(l=>/^[A-Z][a-z]+(?:[ -][A-Z][a-z]+){1,3}$/.test(l)&&!titlePattern.test(l))||'';
-    return {vendorName,contactName,phone:phone.trim(),email,jobTitle};
+    const values=VcmOcr.mergeText(text).suggested;
+    return Object.fromEntries(VcmOcr.keys.map(key=>[key,values[key]||'']));
   }
   return {normalize,key,record,build,sameHeads,parseBusinessCard,defaults};
 })();

@@ -1,4 +1,6 @@
-# V1.3.0 架構與資料契約
+# V1.4.0 架構與資料契約
+
+沿用 V1.3.0 的 Drive 修訂格式與本機資料庫。新增 image-tools.js 處理照片、ocr-parser.js 提取候選、capture.js 管理 OCR 與核對介面。只有符合格式、足夠信心且沒有相近競爭候選時，才填入空欄；姓名／職稱通常交由核對表採用。
 
 GitHub Pages 提供同層靜態檔案。Google Identity Services 取得短效權杖，Drive API v3 保存名片；Tesseract.js 在裝置處理 OCR。沒有後端、額外資料庫或付費 OCR 金鑰。
 

@@ -185,6 +185,7 @@ function validateForm() {
 }
 
 function resetForm(showMessage = false) {
+  cancelOcr();resetOcrReview();
   state.photoGeneration++;state.photoLoading=false;state.editBase=[];state.editRecord=null;state.ocrValues={};state.fieldEdits={};
   $('cardForm').reset(); $('recordId').value = ''; $('notesCount').textContent = '0'; $('captureTitle').textContent = '拍攝名片'; $('saveBtnText').textContent = state.connected ? '儲存至 Google Drive' : '離線暫存（連線後上傳）';
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); state.previewUrl = ''; state.photoBlob = null;
@@ -208,8 +209,10 @@ function renderRecords() {
   const category = $('categoryFilter')?.value || 'all'; const sort = $('sortSelect')?.value || 'updated';
   const all = flattenRecords();
   let filtered = all.filter(({ vendor, record }) => {
+    const phoneQuery = query.replace(/[^\d+]/g,'');
+    const phoneMatch = /^[\d\s()+-]{5,}$/.test(query) && record.phone.replace(/[^\d+]/g,'').includes(phoneQuery);
     const haystack = [vendor.name, record.contactName, record.phone, record.email, record.jobTitle, record.notes, record.phone.replace(/\D/g,'')].join(' ').toLocaleLowerCase();
-    return (!query || haystack.includes(query)) && (category === 'all' || record.category === category) && (!state.favoriteOnly || record.favorite);
+    return (!query || haystack.includes(query) || phoneMatch) && (category === 'all' || record.category === category) && (!state.favoriteOnly || record.favorite);
   });
   filtered.sort((a, b) => sort === 'vendor' ? a.vendor.name.localeCompare(b.vendor.name, 'zh-Hant') : sort === 'contact' ? a.record.contactName.localeCompare(b.record.contactName, 'zh-Hant') : new Date(b.record.updatedAt) - new Date(a.record.updatedAt));
   const grouped = new Map(); filtered.forEach((item) => { if (!grouped.has(item.vendor.folderId)) grouped.set(item.vendor.folderId, { vendor: item.vendor, records: [] }); grouped.get(item.vendor.folderId).records.push(item.record); });

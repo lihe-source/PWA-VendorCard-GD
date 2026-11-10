@@ -1,7 +1,7 @@
 'use strict';
 const CACHE_PREFIX = `vendor-card-manager-${encodeURIComponent(new URL(self.registration.scope).pathname)}-`;
-const CACHE_VERSION = `${CACHE_PREFIX}v1.3.0`;
-const APP_SHELL = ['./', './index.html', './styles.css', './ui.js', './app.js', './data-core.js', './storage.js', './drive-store.js', './manifest.webmanifest', './version.json', './icon.svg', './icon-192.png', './icon-512.png'];
+const CACHE_VERSION = `${CACHE_PREFIX}v1.4.0-r2`;
+const APP_SHELL = ['./', './index.html', './styles.css', './ui.js', './app.js', './capture.js', './ocr-parser.js', './image-tools.js', './data-core.js', './storage.js', './drive-store.js', './manifest.webmanifest', './version.json', './icon.svg', './icon-192.png', './icon-512.png'];
 const SHELL_URLS = new Set(APP_SHELL.map((path) => new URL(path, self.registration.scope).href));
 
 self.addEventListener('install', (event) => {
